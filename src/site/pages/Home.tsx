@@ -1,4 +1,5 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router';
 import type { HomeSection } from '@/lib/types';
 import { useDb } from '@/store/db';
 import { usePageTitle } from '@/site/layout/SiteLayout';
@@ -42,9 +43,14 @@ function renderSection(s: HomeSection, prev: HomeSection | undefined): ReactNode
 }
 
 export default function Home() {
-  const home = useDb((s) => s.home);
+  const live = useDb((s) => s.home);
+  const draft = useDb((s) => s.homeDraft);
+  // CMS preview (builder iframe / "Preview draft"): /?preview=1 shows the unpublished draft when there is one.
+  const [params] = useSearchParams();
+  const preview = params.get('preview') === '1';
+  const home = preview ? (draft ?? live) : live;
   usePageTitle(undefined);
-  const enabled = home.filter((s) => s.enabled);
+  const enabled = useMemo(() => home.filter((s) => s.enabled), [home]);
 
   // CMS live preview: the homepage builder posts { type: 'selca:scrollTo', id } into this iframe
   useEffect(() => {

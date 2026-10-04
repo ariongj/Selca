@@ -232,7 +232,7 @@ export const adm = defineDict({
     save: 'Ruaj',
     saving: 'Duke ruajtur…',
     saved: 'Ndryshimet u ruajtën',
-    discard: 'Anulo ndryshimet',
+    discard: 'Hidh poshtë',
     unsaved: 'Keni ndryshime të paruajtura',
     cancel: 'Anulo',
     delete: 'Fshij',

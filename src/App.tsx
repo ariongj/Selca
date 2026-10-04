@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { createBrowserRouter, Navigate, Outlet, RouterProvider, ScrollRestoration } from 'react-router';
+import { BASENAME } from '@/lib/paths';
 import { Toaster, toast } from 'sonner';
 import { SiteLayout } from '@/site/layout/SiteLayout';
 import { useDb } from '@/store/db';
@@ -146,7 +147,7 @@ const router = createBrowserRouter([
       },
     ],
   },
-]);
+], { basename: BASENAME });
 
 export default function App() {
   return <RouterProvider router={router} />;
