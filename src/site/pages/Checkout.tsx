@@ -313,7 +313,7 @@ export default function Checkout() {
   const navigate = useNavigate();
   const settings = useSettings();
   const cart = useUi((s) => s.cart);
-  const coupon = useUi((s) => s.coupon);
+  const codes = useUi((s) => s.codes);
   const clearCart = useUi((s) => s.clearCart);
   const placeOrder = useDb((s) => s.placeOrder);
   usePageTitle(t('pageTitle'));
@@ -399,7 +399,7 @@ export default function Checkout() {
       ...(form.isCompany ? { company: form.company.trim(), pib: form.pib.replace(/\s/g, '') } : {}),
       ...(form.note.trim() ? { note: form.note.trim() } : {}),
     };
-    const order = placeOrder({ customer, items: cart, delivery, payment, couponCode: coupon, lang });
+    const order = placeOrder({ customer, items: cart, delivery, payment, codes, lang });
     placed.current = true;
     saveDraft(null);
     clearCart();

@@ -1,6 +1,6 @@
 // Realistic demo activity (orders + inquiries) so the CMS dashboard looks alive.
 // Deterministic for a given seed, always relative to "now".
-import type { CartItem, Customer, Inquiry, Lang, Order, OrderEvent, OrderStatus, PaymentMethod, Product, Settings, Coupon } from '@/lib/types';
+import type { CartItem, Collection, Customer, Discount, Inquiry, Lang, Order, OrderEvent, OrderStatus, PaymentMethod, Product, Settings } from '@/lib/types';
 import { priceCart, defaultOptions, packsForArea } from '@/lib/pricing';
 import { lt } from '@/i18n';
 import { pick, rng, slugify, weighted } from '@/lib/utils';
@@ -51,11 +51,16 @@ function statusFor(ageDays: number, r: () => number): OrderStatus {
 
 const FLOW: OrderStatus[] = ['new', 'confirmed', 'processing', 'shipped', 'installation', 'completed'];
 
-export function generateOrders(products: Product[], settings: Settings, coupons: Coupon[], now = new Date(), seed = 42): Order[] {
+/**
+ * Orders over the last 75 days. Every cart goes through the real pricing + discount engine with the
+ * order date as "now", so automatic rules only apply inside their window (e.g. the autumn floor sale).
+ */
+export function generateOrders(products: Product[], settings: Settings, discounts: Discount[], collections: Collection[], now = new Date(), seed = 42): Order[] {
   const r = rng(seed);
   const sellable = products.filter((p) => !p.quoteOnly && p.status === 'active');
   const weights = sellable.map((p) => [p, Math.sqrt(p.sold + 5)] as const);
   const orders: Order[] = [];
+  const past: Customer[] = [];
   let seq = 1001;
   const DAYS = 75;
   for (let day = DAYS; day >= 0; day--) {
@@ -90,11 +95,24 @@ export function generateOrders(products: Product[], settings: Settings, coupons:
         used.add(prod.id);
         cart.push(lineFor(prod, r));
       }
-      const cust = customer(r);
+      // shoppers following the "buy X get Y" promo add the free item themselves (manual mode)
+      for (const d of discounts) {
+        const b = d.bxgy;
+        if (d.kind !== 'bxgy' || !b || d.method !== 'auto' || b.getScope !== 'products' || new Date(d.startsAt) > created) continue;
+        const xQty = cart.filter((c) => b.buyScope === 'products' && b.buyIds.includes(c.productId)).reduce((n, c) => n + c.qty, 0);
+        const y = products.find((p) => p.id === b.getIds[0]);
+        if (y && xQty >= b.buyQty && !cart.some((c) => c.productId === y.id) && r() < 0.7) cart.push({ key: '', productId: y.id, qty: b.getQty * Math.min(b.maxUses || 1, Math.floor(xQty / b.buyQty)), options: defaultOptions(y), installation: false });
+      }
+      // about one order in six comes from a returning customer
+      const cust = past.length > 4 && r() < 0.16 ? { ...pick(past, r) } : customer(r);
+      past.push(cust);
       const delivery = r() < 0.15 ? 'pickup' : 'delivery';
       const lang: Lang = weighted([['me', 6], ['sq', 3], ['en', 1]] as const, r);
-      const couponCode = r() < 0.14 ? 'SELCA10' : null;
-      const totals = priceCart(cart, products, settings, { lang, couponCode, coupons, delivery, city: cust.city });
+      // codes people typed: the welcome code, plus the seasonal code that was live on that day
+      const x = r();
+      const seasonal = discounts.find((d) => d.method === 'code' && d.id !== 'd-selca10' && d.status === 'active' && new Date(d.startsAt) <= created && (!d.endsAt || new Date(d.endsAt) > created));
+      const couponCode = x < 0.12 ? 'SELCA10' : x < 0.25 && seasonal ? seasonal.code! : null;
+      const totals = priceCart(cart, products, settings, { lang, couponCode, discounts, collections, delivery, city: cust.city, now: created });
       const payMethod: PaymentMethod = weighted([['cod', 5], ['bank', 2.5], ['card', 2.5]] as const, r);
       const status = statusFor(ageDays, r);
 
@@ -128,10 +146,14 @@ export function generateOrders(products: Product[], settings: Settings, coupons:
           installation: l.item.installation,
           installationPrice: l.installationUnitPrice,
           lineTotal: l.lineTotal,
+          discount: l.discount,
+          allocations: l.allocations,
         })),
         delivery: { method: delivery, fee: totals.shipping },
         payment: { method: payMethod, status: status === 'cancelled' ? (paid && payMethod === 'card' ? 'refunded' : 'pending') : paid ? 'paid' : 'pending' },
         coupon: totals.coupon ? { code: totals.coupon.code, discount: totals.discount } : null,
+        discounts: totals.applied,
+        shippingBeforeDiscount: totals.shippingBeforeDiscount,
         subtotal: totals.subtotal,
         installationTotal: totals.installationTotal,
         discount: totals.discount,
@@ -142,6 +164,9 @@ export function generateOrders(products: Product[], settings: Settings, coupons:
         timeline,
         seen: ageDays > 0.6,
         demo: true,
+        ...(status === 'shipped' || status === 'installation' || status === 'completed'
+          ? { fulfillment: { shippedAt: timeline.find((e) => e.status === 'shipped' || e.status === 'installation')?.at ?? created.toISOString(), ...(status === 'completed' ? { deliveredAt: timeline[timeline.length - 1].at } : {}) } }
+          : {}),
       });
       seq++;
     }

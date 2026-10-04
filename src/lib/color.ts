@@ -1,5 +1,6 @@
 // Build a 50–900 brand scale from a single hex so the client can re-colour the
 // whole site from Admin → Postavke and see it update live.
+import type { CSSProperties } from 'react';
 
 function hexToHsl(hex: string): [number, number, number] {
   const m = hex.replace('#', '');
@@ -56,8 +57,84 @@ export function brandScale(hex: string): Record<string, string> {
   };
 }
 
-export function applyBrand(hex: string) {
+export const DEFAULT_BRAND = '#9a2e2e';
+
+/* ------------------------------------------------------------------ */
+/* CMS v2: the admin is neutral — black, grey, white (proposal p.07).   */
+/* Under /admin the brand scale is remapped to greys (600 = #1A1A1A,    */
+/* 700 = #000) and the warm tokens to neutral ones, so every            */
+/* `bg-brand-600` / `Button variant="primary"` renders black there.     */
+/* The storefront (and the builder's preview iframe, which is its own   */
+/* document) keeps the SELCA brand.                                     */
+/* ------------------------------------------------------------------ */
+export const NEUTRAL_SCALE: Record<string, string> = {
+  50: '#f7f7f7',
+  100: '#ededed',
+  200: '#dadada',
+  300: '#bdbdbd',
+  400: '#8f8f8f',
+  500: '#5f5f5f',
+  600: '#1a1a1a',
+  700: '#000000',
+  800: '#000000',
+  900: '#000000',
+};
+
+/** Warm storefront tokens → neutral admin tokens (top bar #1A1A1A, sidebar #EBEBEB, work area #F1F1F1). */
+export const ADMIN_TOKENS: Record<string, string> = {
+  '--color-ink': '#1a1a1a',
+  '--color-ink-soft': '#3d3d3d',
+  '--color-muted': '#6b6b6b',
+  '--color-paper': '#f7f7f7',
+  '--color-sand': '#efefef',
+  '--color-sand-2': '#e4e4e4',
+  '--color-line': '#dedede',
+  '--color-canvas': '#f1f1f1',
+};
+
+let adminMode = false;
+let brandHex = DEFAULT_BRAND;
+
+function setScale(scale: Record<string, string>) {
   const root = document.documentElement;
-  const scale = brandScale(isHex(hex) ? hex : '#9a2e2e');
   for (const [k, v] of Object.entries(scale)) root.style.setProperty(`--color-brand-${k}`, v);
+}
+
+function setThemeColor(color: string) {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
+}
+
+/**
+ * Apply the store's brand colour to the document. While the neutral admin theme is on, the colour is only
+ * remembered (and applied when leaving /admin) — the CMS never turns red.
+ */
+export function applyBrand(hex: string) {
+  brandHex = isHex(hex) ? hex : DEFAULT_BRAND;
+  if (!adminMode) setScale(brandScale(brandHex));
+}
+
+/** Switch the neutral CMS theme on (route starts with /admin) or off (storefront: SELCA brand restored). */
+export function setAdminTheme(on: boolean) {
+  const root = document.documentElement;
+  adminMode = on;
+  if (on) {
+    setScale(NEUTRAL_SCALE);
+    for (const [k, v] of Object.entries(ADMIN_TOKENS)) root.style.setProperty(k, v);
+    root.dataset.admin = '';
+    setThemeColor('#1A1A1A');
+  } else {
+    for (const k of Object.keys(ADMIN_TOKENS)) root.style.removeProperty(k);
+    delete root.dataset.admin;
+    setScale(brandScale(brandHex));
+    setThemeColor('#F7F3EE');
+  }
+}
+
+/**
+ * Inline CSS variables that re-enable a brand scale inside one element — e.g. a storefront preview card
+ * in the neutral admin: `<div style={brandVars(settings.brandColor)}>…bg-brand-600…</div>`.
+ */
+export function brandVars(hex: string): CSSProperties {
+  const scale = brandScale(isHex(hex) ? hex : DEFAULT_BRAND);
+  return Object.fromEntries(Object.entries(scale).map(([k, v]) => [`--color-brand-${k}`, v])) as CSSProperties;
 }

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { CartItem, Lang } from '@/lib/types';
+import type { CartItem, Lang, RoleId } from '@/lib/types';
 import { safeStorage } from './storage';
 
 export function cartKey(productId: string, options: Record<string, string>, installation: boolean) {
@@ -11,15 +11,22 @@ export function cartKey(productId: string, options: Record<string, string>, inst
   return `${productId}|${opts}|${installation ? 'i' : ''}`;
 }
 
+/** Codes are stored trimmed, without spaces, uppercase (same as the discount engine). */
+const norm = (code: string) => code.trim().replace(/\s+/g, '').toUpperCase();
+
 interface UiState {
   lang: Lang;
   adminLang: Lang;
   cart: CartItem[];
   wishlist: string[];
+  /** Entered discount codes, in entry order */
+  codes: string[];
+  /** Legacy alias of codes[0] — kept in sync by every code action */
   coupon: string | null;
   recentlyViewed: string[];
   adminAuthed: boolean;
-  /** Last time the admin looked at notifications */
+  /** Role the demo admin acts as (Roles & permissions, PDF p.42) */
+  adminRole: RoleId;
   cartOpen: boolean;
   searchOpen: boolean;
 
@@ -33,22 +40,33 @@ interface UiState {
   setCartOpen: (open: boolean) => void;
   setSearchOpen: (open: boolean) => void;
   toggleWishlist: (productId: string) => void;
+  addCode: (code: string) => void;
+  removeCode: (code: string) => void;
+  clearCodes: () => void;
+  /** Legacy: replace the first code (null removes it) */
   setCoupon: (code: string | null) => void;
   pushViewed: (productId: string) => void;
   login: () => void;
   logout: () => void;
+  setAdminRole: (role: RoleId) => void;
 }
+
+const withCodes = (codes: string[]) => ({ codes, coupon: codes[0] ?? null });
+
+export const UI_VERSION = 2;
 
 export const useUi = create<UiState>()(
   persist(
     (set) => ({
       lang: 'me',
-      adminLang: 'me',
+      adminLang: 'sq',
       cart: [],
       wishlist: [],
+      codes: [],
       coupon: null,
       recentlyViewed: [],
       adminAuthed: false,
+      adminRole: 'owner',
       cartOpen: false,
       searchOpen: false,
 
@@ -83,29 +101,61 @@ export const useUi = create<UiState>()(
           return { cart: s.cart.map((c) => (c.key === key ? { ...c, installation: on, key: newKey } : c)) };
         }),
       removeFromCart: (key) => set((s) => ({ cart: s.cart.filter((c) => c.key !== key) })),
-      clearCart: () => set({ cart: [], coupon: null }),
+      clearCart: () => set({ cart: [], ...withCodes([]) }),
       setCartOpen: (cartOpen) => set({ cartOpen }),
       setSearchOpen: (searchOpen) => set({ searchOpen }),
       toggleWishlist: (id) =>
         set((s) => ({ wishlist: s.wishlist.includes(id) ? s.wishlist.filter((w) => w !== id) : [...s.wishlist, id] })),
-      setCoupon: (coupon) => set({ coupon }),
+      addCode: (code) =>
+        set((s) => {
+          const c = norm(code);
+          return c && !s.codes.includes(c) ? withCodes([...s.codes, c]) : {};
+        }),
+      removeCode: (code) => set((s) => withCodes(s.codes.filter((c) => c !== norm(code)))),
+      clearCodes: () => set(withCodes([])),
+      setCoupon: (code) =>
+        set((s) => {
+          const c = code ? norm(code) : '';
+          const rest = s.codes.slice(1).filter((x) => x !== c);
+          return withCodes(c ? [c, ...rest] : rest);
+        }),
       pushViewed: (id) => set((s) => ({ recentlyViewed: [id, ...s.recentlyViewed.filter((v) => v !== id)].slice(0, 12) })),
       login: () => set({ adminAuthed: true }),
       logout: () => set({ adminAuthed: false }),
+      setAdminRole: (adminRole) => set({ adminRole }),
     }),
     {
       name: 'selca-ui',
-      version: 1,
+      version: UI_VERSION,
       storage: createJSONStorage(() => safeStorage),
       partialize: (s) => ({
         lang: s.lang,
         adminLang: s.adminLang,
         cart: s.cart,
         wishlist: s.wishlist,
+        codes: s.codes,
         coupon: s.coupon,
         recentlyViewed: s.recentlyViewed,
         adminAuthed: s.adminAuthed,
+        adminRole: s.adminRole,
       }),
+      // v1 → v2: keep the shopper's cart, wishlist, history, language and login; the CMS now opens in
+      // Albanian (sq) as owner; the single coupon becomes the first entry of `codes`.
+      migrate: (persisted, version) => {
+        const old = (persisted ?? {}) as Partial<UiState>;
+        if (version >= UI_VERSION) return old as UiState;
+        const codes = old.coupon ? [norm(old.coupon)] : [];
+        return {
+          lang: old.lang ?? 'me',
+          adminLang: 'sq',
+          cart: Array.isArray(old.cart) ? old.cart : [],
+          wishlist: Array.isArray(old.wishlist) ? old.wishlist : [],
+          recentlyViewed: Array.isArray(old.recentlyViewed) ? old.recentlyViewed : [],
+          adminAuthed: !!old.adminAuthed,
+          adminRole: 'owner',
+          ...withCodes(codes),
+        } as UiState;
+      },
     },
   ),
 );

@@ -105,7 +105,7 @@ export default function CartPage() {
   const totals = useCart();
   const view = useTotalsView(totals, { showEstimateHint: true });
   const cart = useUi((s) => s.cart);
-  const coupon = useUi((s) => s.coupon);
+  const codes = useUi((s) => s.codes);
   const clearCart = useUi((s) => s.clearCart);
   const products = useActiveProducts();
   usePageTitle(t('pageTitle'));
@@ -118,7 +118,7 @@ export default function CartPage() {
   }, [cart, products, totals.lines]);
 
   const onClear = () => {
-    const snapshot = { cart, coupon };
+    const snapshot = { cart, codes, coupon: codes[0] ?? null };
     clearCart();
     toast(t('cleared'), {
       action: { label: t('undo'), onClick: () => useUi.setState(snapshot) },
@@ -172,7 +172,7 @@ export default function CartPage() {
             <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-10 xl:grid-cols-[minmax(0,1fr)_420px] xl:gap-14">
               {/* Lines */}
               <section className="min-w-0">
-                <FreeShippingBar remaining={totals.freeShippingRemaining} threshold={settings.freeShippingThreshold} reason={totals.freeShippingReason} />
+                <FreeShippingBar remaining={totals.freeShippingRemaining} threshold={totals.freeShippingThreshold ?? settings.freeShippingThreshold} reason={totals.freeShippingReason} />
                 <div className="mt-4 rounded-3xl bg-white px-4 ring-1 ring-line sm:px-6">
                   <div className="divide-y divide-line">
                     {totals.lines.map((line) => (

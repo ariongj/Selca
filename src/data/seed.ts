@@ -2,9 +2,14 @@ import type { Db, MediaItem } from '@/lib/types';
 import { CATEGORIES, buildProducts } from './catalog';
 import { DEFAULT_SETTINGS, PROJECTS, buildCoupons, buildHome, buildPages, buildPosts } from './content';
 import { generateInquiries, generateOrders } from './demo';
+import {
+  ARCHIVED_PRODUCT, SEGMENTS, SERVICES, STAFF, buildAudit, buildBookings, buildCollections, buildContentModels, buildDiscounts,
+  buildDrafts, buildHomeHistory, buildMenus, buildMovements, buildOffers, buildPlacements, buildPurchaseOrders, buildQuotes,
+  buildReturns, countDiscountUses, enrichInquiries, enrichProducts,
+} from './cms';
 
 /** Bump to force every browser to reload fresh demo data. */
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
 
 /** Every bundled image, exposed in the CMS media library. */
 const IMAGE_PATHS = [
@@ -37,22 +42,53 @@ function buildMedia(productImages: string[], now: Date): MediaItem[] {
 }
 
 export function createSeed(now = new Date()): Db {
-  const products = buildProducts(now);
+  const catalog = enrichProducts(buildProducts(now));
   const settings = structuredClone(DEFAULT_SETTINGS);
-  const coupons = buildCoupons(now);
+  const collections = buildCollections(now);
+  const home = buildHome(now);
+
+  // Orders go through the real discount engine (with each order's date), then uses are recounted.
+  const generated = generateOrders(catalog, settings, buildDiscounts(now), collections, now);
+  const { returns, orders } = buildReturns(now, generated);
+  const discounts = countDiscountUses(buildDiscounts(now), orders);
+
+  // A discontinued line: archived after it had sales (orders keep their copy of it).
+  const products = catalog.map((p) => (p.id === ARCHIVED_PRODUCT ? { ...p, status: 'archived' as const, featured: false } : p));
+
+  const { bookings, inquiries } = buildBookings(now, enrichInquiries(now, generateInquiries(now)));
+
   return {
     version: DB_VERSION,
     settings,
     categories: structuredClone(CATEGORIES),
     products,
-    orders: generateOrders(products, settings, coupons, now),
-    inquiries: generateInquiries(now),
-    coupons,
+    orders,
+    inquiries,
+    coupons: buildCoupons(now),
     pages: buildPages(now),
     posts: buildPosts(now),
     projects: structuredClone(PROJECTS),
     media: buildMedia(products.flatMap((p) => p.images), now),
-    home: buildHome(now),
+    home,
     seededAt: now.toISOString(),
+
+    collections,
+    discounts,
+    offers: buildOffers(now, discounts, orders),
+    placements: buildPlacements(home),
+    staff: structuredClone(STAFF),
+    services: structuredClone(SERVICES),
+    bookings,
+    segments: structuredClone(SEGMENTS),
+    movements: buildMovements(now, orders, returns),
+    purchaseOrders: buildPurchaseOrders(now),
+    drafts: buildDrafts(now, products),
+    returns,
+    quotes: buildQuotes(now),
+    menus: buildMenus(),
+    contentModels: buildContentModels(PROJECTS, home, settings.locations.length),
+    audit: buildAudit(now, orders),
+    homeDraft: null,
+    homeHistory: buildHomeHistory(now, home),
   };
 }

@@ -11,6 +11,7 @@ import { useDb } from '@/store/db';
 import { useSettings } from '@/store/hooks';
 import { money, num } from '@/lib/format';
 import type { PricedLine, Totals } from '@/lib/pricing';
+import { discountState } from '@/lib/discounts';
 import { cn } from '@/lib/utils';
 import { ck, pluralKey } from './dict';
 
@@ -95,7 +96,7 @@ export function CouponBox({ totals, collapsible, className }: { totals: Totals; 
   const lang = useLang();
   const applied = useUi((s) => s.coupon);
   const setCoupon = useUi((s) => s.setCoupon);
-  const coupons = useDb((s) => s.coupons);
+  const discounts = useDb((s) => s.discounts);
   const [code, setCode] = useState(applied ?? '');
   const [open, setOpen] = useState(!collapsible || !!applied);
 
@@ -140,12 +141,22 @@ export function CouponBox({ totals, collapsible, className }: { totals: Totals; 
   let error = '';
   if (showError && applied) {
     if (totals.couponError === 'min') {
-      const c = coupons.find((x) => x.code.toUpperCase() === applied.toUpperCase());
-      const min = c?.minTotal ?? 0;
-      error = t('err_min', { amount: money(min, lang, { decimals: false }), left: money(Math.max(0, min - totals.subtotal), lang) });
+      const m = totals.couponMinimum;
+      error =
+        m?.type === 'qty'
+          ? t('err_minQty', { amount: m.value, left: m.missing })
+          : t('err_min', { amount: money(m?.value ?? 0, lang, { decimals: false }), left: money(m?.missing ?? 0, lang) });
     } else error = t(`err_${totals.couponError ?? 'notfound'}`, { code: applied });
   }
-  const demo = coupons.find((c) => c.active && (!c.expiresAt || new Date(c.expiresAt).getTime() > Date.now()) && (!c.minTotal || c.minTotal <= totals.subtotal));
+  // suggest a live public code the cart already qualifies for (minimum counted after product discounts)
+  const demo = discounts.find(
+    (d) =>
+      d.method === 'code' &&
+      d.code &&
+      d.audience.type === 'all' &&
+      discountState(d) === 'active' &&
+      (d.minimum.type !== 'amount' || d.minimum.value <= totals.subtotal - totals.productDiscount),
+  );
 
   return (
     <div className={className}>
@@ -305,7 +316,7 @@ export function useTotalsView(totals: Totals, opts: { showEstimateHint?: boolean
   const r = totals.freeShippingReason;
   const note =
     r === 'threshold'
-      ? t('free_threshold', { amount: money(settings.freeShippingThreshold, lang, { decimals: false }) })
+      ? t('free_threshold', { amount: money(totals.freeShippingThreshold ?? settings.freeShippingThreshold, lang, { decimals: false }) })
       : r === 'installation'
         ? t('free_installation')
         : r === 'pickup'

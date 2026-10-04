@@ -57,6 +57,41 @@ export const DEFAULT_SETTINGS: Settings = {
     description: 'Prodaja i ugradnja vrata, prozora, podova, keramike, opreme za kupatilo i kuhinja po mjeri. Besplatno mjerenje i dostava širom Crne Gore.',
   },
   adminEmail: 'admin@selca.me',
+
+  /* ---- CMS v2 ---- */
+  timezone: 'Europe/Podgorica',
+  orderPrefix: 'SC-',
+  locations: [
+    { id: 'loc-pg', name: 'Salon Podgorica', address: 'Magistralni put bb', city: 'Podgorica', pickup: true, isDefault: true },
+    { id: 'loc-tz', name: 'Magacin Tuzi', address: 'Industrijska zona bb', city: 'Tuzi', pickup: false, isDefault: false },
+  ],
+  notifications: [
+    { id: 'nt-order', event: 'order_placed', enabled: true, recipients: 'customer', subject: T('Primili smo vašu narudžbu {number}', 'E morëm porosinë tuaj {number}', 'We received your order {number}') },
+    { id: 'nt-confirm', event: 'order_confirmed', enabled: true, recipients: 'customer', subject: T('Narudžba {number} je potvrđena', 'Porosia {number} u konfirmua', 'Order {number} is confirmed') },
+    { id: 'nt-payment', event: 'payment_received', enabled: true, recipients: 'customer', subject: T('Uplata za narudžbu {number} je evidentirana', 'Pagesa për porosinë {number} u regjistrua', 'Payment for order {number} received') },
+    { id: 'nt-shipped', event: 'order_shipped', enabled: true, recipients: 'customer', subject: T('Narudžba {number} je na putu', 'Porosia {number} është në rrugë', 'Order {number} is on its way') },
+    { id: 'nt-return', event: 'return_requested', enabled: true, recipients: 'staff', subject: T('Novi zahtjev za povrat {number}', 'Kërkesë e re për kthim {number}', 'New return request {number}') },
+    { id: 'nt-refund', event: 'return_refunded', enabled: true, recipients: 'customer', subject: T('Povrat novca za {number}', 'Rimbursimi për {number}', 'Refund for {number}') },
+    { id: 'nt-contact', event: 'contact_received', enabled: true, recipients: 'customer', subject: T('Hvala — javićemo vam se danas', 'Faleminderit — do t’ju kontaktojmë sot', 'Thank you — we’ll get back to you today') },
+    { id: 'nt-booking', event: 'booking_confirmed', enabled: true, recipients: 'customer', subject: T('Termin {date} je potvrđen', 'Termini {date} u konfirmua', 'Your appointment on {date} is confirmed') },
+    { id: 'nt-reminder', event: 'booking_reminder', enabled: false, recipients: 'customer', subject: T('Podsjetnik: termin sjutra u {time}', 'Kujtesë: termini nesër në {time}', 'Reminder: appointment tomorrow at {time}') },
+    { id: 'nt-staff-order', event: 'staff_new_order', enabled: true, recipients: 'staff', subject: T('Nova narudžba {number} — {total}', 'Porosi e re {number} — {total}', 'New order {number} — {total}') },
+    { id: 'nt-staff-inquiry', event: 'staff_new_inquiry', enabled: true, recipients: 'staff', subject: T('Novi upit: {name}', 'Kërkesë e re: {name}', 'New enquiry: {name}') },
+  ],
+  integrations: [
+    { id: 'int-payment', kind: 'payment', name: 'Kartično plaćanje (payment gateway)', status: 'test', note: 'Test način — kartice se ne terete. Produkcijski ključevi poslije ugovora sa bankom.' },
+    { id: 'int-courier', kind: 'courier', name: 'Kurirska služba', status: 'disconnected', note: 'Za sada dostava sopstvenim vozilima; API kurira po izboru partnera.' },
+    { id: 'int-email', kind: 'email', name: 'Transakcijski e-mail (SMTP)', status: 'connected', note: 'Potvrde narudžbi i termina šalju se sa info@selca.me.' },
+    { id: 'int-fiscal', kind: 'fiscal', name: 'Fiskalizacija (EFI)', status: 'disconnected', note: 'Povezivanje sa poreskim sistemom EFI — u planu za fazu 2.' },
+    { id: 'int-analytics', kind: 'analytics', name: 'Google Analytics 4', status: 'test', note: 'Mjerenje posjeta i konverzija u test property-ju.' },
+  ],
+  markets: [
+    { id: 'mk-me', name: T('Crna Gora', 'Mali i Zi', 'Montenegro'), countries: ['ME'], currency: 'EUR', languages: ['me', 'sq', 'en'], status: 'active' },
+    { id: 'mk-xk', name: T('Kosovo', 'Kosova', 'Kosovo'), countries: ['XK'], currency: 'EUR', languages: ['sq', 'en'], status: 'draft' },
+    { id: 'mk-al', name: T('Albanija', 'Shqipëria', 'Albania'), countries: ['AL'], currency: 'ALL', languages: ['sq', 'en'], status: 'draft' },
+  ],
+  checkout: { guest: true, phoneRequired: true, companyField: 'optional', marketingOptIn: false },
+  privacy: { cookieBanner: true },
 };
 
 /* ------------------------------------------------------------------ */
