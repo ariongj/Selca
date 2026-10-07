@@ -1,14 +1,24 @@
-// Pure dashboard maths: time buckets, period stats, top products, upcoming measurements.
-// Everything is derived from the raw store slices inside `useMemo` (see Dashboard.tsx).
-import type { Category, Inquiry, Order, OrderStatus, Product, Unit } from '@/lib/types';
+// Pure overview maths (PDF p.08 + p.38): period windows, net sales, chart buckets, top products and the
+// "Kërkojnë vëmendje" queues. Everything is derived from raw store slices inside `useMemo` (see Dashboard.tsx).
+import type { Booking, Inquiry, Offer, Order, OrderStatus, Product, ReturnRequest, Unit } from '@/lib/types';
+import { fulfillmentOf, orderLineNet, orderLineUnits, paymentOf, refundedOf } from '@/lib/orders';
+import { offerState } from '@/lib/offers';
 
-export type Period = 7 | 30 | 90;
-export const PERIODS: Period[] = [7, 30, 90];
+export type Period = 'today' | '7' | '30' | '90';
+export const PERIODS: Period[] = ['today', '7', '30', '90'];
+export const isPeriod = (v: unknown): v is Period => PERIODS.includes(v as Period);
+export const periodDays = (p: Period) => (p === 'today' ? 1 : Number(p));
 
-/** Pipeline order — also the order of the ordinal colour ramp. */
+/** Pipeline order of order statuses. */
 export const STATUS_ORDER: OrderStatus[] = ['new', 'confirmed', 'processing', 'shipped', 'installation', 'completed', 'cancelled'];
 
-export const OPEN_INQUIRY: Inquiry['status'][] = ['new', 'contacted', 'scheduled'];
+/** "Low stock" = tracked product with this many units or fewer — same rule as the products list filter (?zalihe=low). */
+export const LOW_STOCK = 5;
+/** Offers that end within this many days are flagged. */
+export const OFFER_WARN_DAYS = 14;
+
+const DAY = 86_400_000;
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export function startOfDay(d: Date) {
   const x = new Date(d);
@@ -27,51 +37,57 @@ export function isoDay(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const counts = (o: Order) => o.status !== 'cancelled';
+/** Whole calendar days from today to `d` (0 = today, 1 = tomorrow…). */
+export function daysUntil(d: Date, now: Date) {
+  return Math.round((startOfDay(d).getTime() - startOfDay(now).getTime()) / DAY);
+}
 
 /* ------------------------------------------------------------------ */
-/* Time buckets                                                        */
+/* Net sales — one definition for the KPI, the chart and top products  */
 /* ------------------------------------------------------------------ */
-export interface Bucket {
+export const isCounted = (o: Pick<Order, 'status'>) => o.status !== 'cancelled';
+
+/**
+ * Net sales of an order (PDF p.38 "Shitje bruto/neto"): products + installation after every discount and
+ * refund, without shipping; VAT included (prices are gross). Cancelled orders count 0.
+ */
+export function netSales(o: Order): number {
+  if (!isCounted(o)) return 0;
+  return Math.max(0, r2(o.total - o.shipping - refundedOf(o)));
+}
+
+/* ------------------------------------------------------------------ */
+/* Period windows                                                       */
+/* ------------------------------------------------------------------ */
+export interface Range {
   start: Date;
   /** exclusive */
   end: Date;
-  revenue: number;
-  /** non-cancelled orders (the ones behind `revenue`) */
-  orders: number;
-  /** every order placed, cancelled included */
-  placed: number;
-  /** last bucket — contains today and is still in progress */
-  current: boolean;
 }
 
-/** Buckets of `step` days covering the last `period` days (today included), oldest first. */
-export function buildBuckets(orders: Order[], now: Date, period: number, step: number): Bucket[] {
-  const today = startOfDay(now);
-  const windowStart = addDays(today, -(period - 1));
-  const buckets: Bucket[] = [];
-  let end = addDays(today, 1);
-  while (end > windowStart) {
-    let start = addDays(end, -step);
-    if (start < windowStart) start = windowStart;
-    buckets.unshift({ start, end, revenue: 0, orders: 0, placed: 0, current: buckets.length === 0 });
-    end = start;
-  }
-  for (const o of orders) {
-    const t = new Date(o.createdAt);
-    if (t < windowStart || t >= buckets[buckets.length - 1].end) continue;
-    const b = buckets.find((x) => t >= x.start && t < x.end);
-    if (!b) continue;
-    b.placed += 1;
-    if (!counts(o)) continue;
-    b.revenue += o.total;
-    b.orders += 1;
-  }
-  return buckets;
+/**
+ * Current window = the last N calendar days (today included, so far). The comparison window has exactly the
+ * same length one period earlier ("today until 12:14" vs "yesterday until 12:14").
+ */
+export function periodRanges(p: Period, now: Date) {
+  const days = periodDays(p);
+  const start = addDays(startOfDay(now), -(days - 1));
+  const elapsed = now.getTime() - start.getTime();
+  const prevStart = addDays(start, -days);
+  return {
+    days,
+    current: { start, end: new Date(now.getTime() + 1) } as Range,
+    previous: { start: prevStart, end: new Date(prevStart.getTime() + elapsed + 1) } as Range,
+  };
 }
+
+const inRange = (iso: string, r: Range) => {
+  const t = new Date(iso).getTime();
+  return t >= r.start.getTime() && t < r.end.getTime();
+};
 
 /* ------------------------------------------------------------------ */
-/* Period stats                                                        */
+/* Window stats                                                        */
 /* ------------------------------------------------------------------ */
 export interface TopProduct {
   productId: string;
@@ -80,80 +96,44 @@ export interface TopProduct {
   unit: Unit;
   /** pieces / metres / sets, or m² for m2 products */
   units: number;
-  revenue: number;
-  orders: number;
+  net: number;
 }
 
-export interface PeriodStats {
-  revenue: number;
-  /** all orders placed in the window, cancelled included */
+export interface WindowStats {
+  net: number;
+  /** every order placed in the window, cancelled included */
   orders: number;
-  /** non-cancelled orders — the AOV denominator */
-  validOrders: number;
-  aov: number;
   byStatus: Record<OrderStatus, number>;
   top: TopProduct[];
+  /** contacts (inquiries) received in the window */
+  contacts: number;
 }
 
-function statsFor(orders: Order[], from: Date, to: Date): PeriodStats {
+export function windowStats(orders: Order[], inquiries: Inquiry[], r: Range): WindowStats {
   const byStatus = Object.fromEntries(STATUS_ORDER.map((s) => [s, 0])) as Record<OrderStatus, number>;
   const top = new Map<string, TopProduct>();
-  let revenue = 0;
+  let net = 0;
   let count = 0;
-  let valid = 0;
   for (const o of orders) {
-    const t = new Date(o.createdAt);
-    if (t < from || t >= to) continue;
+    if (!inRange(o.createdAt, r)) continue;
     count++;
     byStatus[o.status]++;
-    if (!counts(o)) continue;
-    valid++;
-    revenue += o.total;
-    for (const l of o.items) {
-      const row = top.get(l.productId) ?? { productId: l.productId, name: l.name, image: l.image, unit: l.unit, units: 0, revenue: 0, orders: 0 };
-      row.units += l.unit === 'm2' && l.packSize ? l.qty * l.packSize : l.qty;
-      row.revenue += l.lineTotal;
-      row.orders += 1;
+    if (!isCounted(o)) continue;
+    net += netSales(o);
+    o.items.forEach((l, i) => {
+      if (!l.productId) return;
+      const row = top.get(l.productId) ?? { productId: l.productId, name: l.name, image: l.image, unit: l.unit, units: 0, net: 0 };
+      row.units += orderLineUnits(l);
+      row.net += orderLineNet(o, i);
       top.set(l.productId, row);
-    }
+    });
   }
   return {
-    revenue,
+    net: r2(net),
     orders: count,
-    validOrders: valid,
-    aov: valid ? revenue / valid : 0,
     byStatus,
-    top: [...top.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 5),
-  };
-}
-
-export interface DashboardStats {
-  current: PeriodStats;
-  previous: PeriodStats;
-  /** false when the previous window starts before the first recorded order */
-  comparable: boolean;
-  /** chart buckets: daily for 7/30 days, weekly for 90 */
-  chart: Bucket[];
-  chartStep: number;
-  /** ~10–13 point series for the KPI sparklines */
-  spark: Bucket[];
-}
-
-export function periodStats(orders: Order[], now: Date, period: Period): DashboardStats {
-  const today = startOfDay(now);
-  const end = addDays(today, 1);
-  const start = addDays(today, -(period - 1));
-  const prevStart = addDays(start, -period);
-  const first = orders.reduce((m, o) => (o.createdAt < m ? o.createdAt : m), now.toISOString());
-  const chartStep = period === 90 ? 7 : 1;
-  const sparkStep = period === 7 ? 1 : period === 30 ? 3 : 7;
-  return {
-    current: statsFor(orders, start, end),
-    previous: statsFor(orders, prevStart, start),
-    comparable: new Date(first) <= addDays(prevStart, 1),
-    chart: buildBuckets(orders, now, period, chartStep),
-    chartStep,
-    spark: buildBuckets(orders, now, period, sparkStep),
+    top: [...top.values()].sort((a, b) => b.net - a.net).slice(0, 5),
+    contacts: inquiries.filter((q) => inRange(q.createdAt, r)).length,
   };
 }
 
@@ -163,58 +143,72 @@ export function pctChange(cur: number, prev: number, comparable: boolean) {
   return ((cur - prev) / prev) * 100;
 }
 
-/* ------------------------------------------------------------------ */
-/* Today                                                               */
-/* ------------------------------------------------------------------ */
-export function todaySummary(orders: Order[], inquiries: Inquiry[], now: Date) {
-  const from = startOfDay(now).toISOString();
-  const todays = orders.filter((o) => o.createdAt >= from && counts(o));
-  return {
-    orders: todays.length,
-    revenue: todays.reduce((s, o) => s + o.total, 0),
-    inquiries: inquiries.filter((q) => q.createdAt >= from).length,
-  };
+/** The comparison window only means something if the shop already had orders back then. */
+export function isComparable(orders: Order[], previous: Range) {
+  let first = Infinity;
+  for (const o of orders) first = Math.min(first, new Date(o.createdAt).getTime());
+  return first <= previous.start.getTime() + DAY;
 }
 
 /* ------------------------------------------------------------------ */
-/* Upcoming measurements                                               */
+/* Chart buckets                                                       */
 /* ------------------------------------------------------------------ */
-export interface Appointment {
-  inquiry: Inquiry;
-  when: Date;
-  /** true = confirmed by the team (scheduledAt), false = customer's preferred date */
-  confirmed: boolean;
+export type Step = 'hour' | 'day' | 'week';
+
+export interface Bucket {
+  start: Date;
+  /** exclusive */
+  end: Date;
+  net: number;
+  /** non-cancelled orders behind `net` */
+  orders: number;
+  /** bucket containing "now" — still in progress */
+  current: boolean;
+  /** starts after "now" (later hours of today) */
+  future: boolean;
 }
 
-export function upcomingAppointments(inquiries: Inquiry[], now: Date, limit = 5): Appointment[] {
-  const today = isoDay(now);
-  const out: Appointment[] = [];
-  for (const q of inquiries) {
-    if (q.status === 'done') continue;
-    if (q.scheduledAt && new Date(q.scheduledAt) > now) {
-      out.push({ inquiry: q, when: new Date(q.scheduledAt), confirmed: true });
-    } else if (q.preferredDate && q.preferredDate >= today) {
-      out.push({ inquiry: q, when: new Date(`${q.preferredDate}T00:00:00`), confirmed: false });
+/** Today → 24 hourly buckets; 7/30 days → daily; 90 days → weekly buckets anchored on today. Oldest first. */
+export function buildBuckets(orders: Order[], now: Date, p: Period): { buckets: Bucket[]; step: Step } {
+  const today = startOfDay(now);
+  const buckets: Bucket[] = [];
+  let step: Step;
+  if (p === 'today') {
+    step = 'hour';
+    for (let h = 0; h < 24; h++) {
+      const start = new Date(today);
+      start.setHours(h);
+      const end = new Date(today);
+      end.setHours(h + 1);
+      buckets.push({ start, end, net: 0, orders: 0, current: now >= start && now < end, future: start > now });
+    }
+  } else {
+    const days = periodDays(p);
+    const size = p === '90' ? 7 : 1;
+    step = size === 7 ? 'week' : 'day';
+    const windowStart = addDays(today, -(days - 1));
+    let end = addDays(today, 1);
+    while (end > windowStart) {
+      let start = addDays(end, -size);
+      if (start < windowStart) start = windowStart;
+      buckets.unshift({ start, end, net: 0, orders: 0, current: buckets.length === 0, future: false });
+      end = start;
     }
   }
-  return out.sort((a, b) => a.when.getTime() - b.when.getTime()).slice(0, limit);
+  const first = buckets[0].start.getTime();
+  const last = buckets[buckets.length - 1].end.getTime();
+  for (const o of orders) {
+    if (!isCounted(o)) continue;
+    const t = new Date(o.createdAt).getTime();
+    if (t < first || t >= last) continue;
+    const b = buckets.find((x) => t >= x.start.getTime() && t < x.end.getTime());
+    if (!b) continue;
+    b.net = r2(b.net + netSales(o));
+    b.orders += 1;
+  }
+  return { buckets, step };
 }
 
-/* ------------------------------------------------------------------ */
-/* Low stock                                                           */
-/* ------------------------------------------------------------------ */
-export function lowStock(products: Product[], categories: Category[], limit = 6) {
-  const cats = new Map(categories.map((c) => [c.id, c]));
-  return products
-    .filter((p) => p.stock <= 5 && p.stock < 999)
-    .sort((a, b) => a.stock - b.stock || a.sku.localeCompare(b.sku))
-    .slice(0, limit)
-    .map((p) => ({ product: p, category: cats.get(p.categoryId) }));
-}
-
-/* ------------------------------------------------------------------ */
-/* Axis helpers                                                        */
-/* ------------------------------------------------------------------ */
 /** Clean y-axis ticks (0 … niceMax) for roughly `count` intervals. */
 export function niceTicks(max: number, count = 4): number[] {
   if (max <= 0) return [0, 250, 500, 750, 1000];
@@ -225,4 +219,70 @@ export function niceTicks(max: number, count = 4): number[] {
   const ticks: number[] = [];
   for (let v = 0; v <= top + step / 2; v += step) ticks.push(Math.round(v));
   return ticks;
+}
+
+/* ------------------------------------------------------------------ */
+/* "Kërkojnë vëmendje" queues (PDF p.08 / p.38 operational reports)     */
+/* ------------------------------------------------------------------ */
+/** Tracked, non-archived products at or below LOW_STOCK, lowest first. */
+export function lowStockProducts(products: Product[]) {
+  return products
+    .filter((p) => p.status !== 'archived' && p.stock < 999 && p.stock <= LOW_STOCK)
+    .sort((a, b) => a.stock - b.stock || a.sku.localeCompare(b.sku));
+}
+
+/** Open (not cancelled) orders whose payment is still outstanding. */
+export function pendingPayments(orders: Order[]) {
+  return orders.filter((o) => {
+    if (!isCounted(o)) return false;
+    const s = paymentOf(o);
+    return s === 'pending' || s === 'authorized' || s === 'failed';
+  });
+}
+
+/** Not-cancelled orders that have not (fully) left the warehouse, oldest first. */
+export function unfulfilledOrders(orders: Order[]) {
+  return orders
+    .filter((o) => isCounted(o) && (fulfillmentOf(o) === 'unfulfilled' || fulfillmentOf(o) === 'partial'))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/** Bookings the customer asked for that nobody confirmed yet, soonest first. */
+export function pendingBookings(bookings: Booking[]) {
+  return bookings.filter((b) => b.status === 'pending').sort((a, b) => a.start.localeCompare(b.start));
+}
+
+/** Open contacts with no one responsible, newest first. */
+export function unassignedContacts(inquiries: Inquiry[]) {
+  return inquiries.filter((q) => q.status !== 'done' && !q.assignee).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Running offers that end within OFFER_WARN_DAYS, soonest first. */
+export function expiringOffers(offers: Offer[], now: Date) {
+  const limit = now.getTime() + OFFER_WARN_DAYS * DAY;
+  return offers
+    .filter((o) => o.endsAt && offerState(o, now) === 'active' && new Date(o.endsAt).getTime() <= limit)
+    .sort((a, b) => (a.endsAt ?? '').localeCompare(b.endsAt ?? ''));
+}
+
+/** Returns waiting for a decision or for the goods. */
+export function openReturns(returns: ReturnRequest[]) {
+  return returns.filter((r) => r.status === 'requested' || r.status === 'approved').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/* ------------------------------------------------------------------ */
+/* Campaigns                                                           */
+/* ------------------------------------------------------------------ */
+export function campaignSummary(offers: Offer[], now: Date) {
+  const active: Offer[] = [];
+  let scheduled = 0;
+  let drafts = 0;
+  for (const o of offers) {
+    const s = offerState(o, now);
+    if (s === 'active') active.push(o);
+    else if (s === 'scheduled') scheduled++;
+    else if (s === 'draft') drafts++;
+  }
+  active.sort((a, b) => b.metrics.revenue - a.metrics.revenue);
+  return { active, scheduled, drafts };
 }

@@ -16,24 +16,11 @@ export interface SectionProps {
   errors: Errors;
 }
 
-export type SectionId = 'company' | 'contact' | 'sales' | 'payments' | 'languages' | 'announcements' | 'appearance' | 'seo' | 'admin' | 'data';
-
-/** Which settings keys live in which card — drives the "unsaved" dots in the section nav. */
-export const SECTION_KEYS: Record<SectionId, (keyof Settings)[]> = {
-  company: ['companyName', 'legalName', 'tagline', 'about', 'pib', 'pdv'],
-  contact: ['email', 'phone', 'phone2', 'whatsapp', 'address', 'city', 'mapUrl', 'hours', 'instagram', 'facebook'],
-  sales: ['vatRate', 'freeShippingThreshold', 'pickupAddress', 'shippingZones'],
-  payments: ['payments', 'bankName', 'bankAccount'],
-  languages: ['languages'],
-  announcements: ['announcements'],
-  appearance: ['brandColor', 'demoBanner'],
-  seo: ['seo'],
-  admin: ['adminEmail'],
-  data: [],
-};
+/** Legacy section ids (SiteSections.tsx); the settings space uses model.ts. */
+export type SectionId = string;
 
 /* ------------------------------------------------------------------ */
-/* Demo placeholder detection ("Primjer" chip)                         */
+/* Demo placeholder detection ("Shembull" chip)                        */
 /* ------------------------------------------------------------------ */
 const SAMPLE_EXACT = ['+382 67 123 456', 'Magistralni put bb', 'Podgorica', '03XXXXXX', '40/31-XXXXX-X', '510-XXXXXXXXXXXXX-XX'];
 const SAMPLE_PART = ['+382 67 123 456', 'Magistralni put bb'];
@@ -47,19 +34,6 @@ export function isExample(value?: string | null) {
   if (!v) return false;
   return SAMPLE_EXACT.includes(v) || SAMPLE_PART.some((p) => v.includes(p)) || /X(?![a-zçë])/.test(v);
 }
-
-/** Fields that can hold demo placeholders, with the card they live in. */
-export const EXAMPLE_FIELDS: { key: keyof Settings; section: SectionId }[] = [
-  { key: 'pib', section: 'company' },
-  { key: 'pdv', section: 'company' },
-  { key: 'phone', section: 'contact' },
-  { key: 'phone2', section: 'contact' },
-  { key: 'whatsapp', section: 'contact' },
-  { key: 'address', section: 'contact' },
-  { key: 'city', section: 'contact' },
-  { key: 'pickupAddress', section: 'sales' },
-  { key: 'bankAccount', section: 'payments' },
-];
 
 export const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
 

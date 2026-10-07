@@ -1,14 +1,26 @@
 import { useState } from 'react';
-import { CheckCircle2, Send } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Send } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Field';
-import { useDict, useL } from '@/i18n';
+import { defineDict, useDict, useL, useLang } from '@/i18n';
 import { site } from '@/i18n/site';
 import { useDb } from '@/store/db';
 import { useCategories, useSettings } from '@/store/hooks';
 import { allCities } from '@/lib/pricing';
 import type { InquiryType } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { longDate, timeRange } from '@/admin/components/appointments/dates';
+import { readRules, webSlot } from '@/admin/components/appointments/rules';
+
+/** Booking note on the success screen (CMS v2 — appointments, PDF p.45). */
+const B = defineDict({
+  me: { slot: 'Okvirni termin: {when}', slotHint: 'Termin čeka potvrdu — potvrdićemo ga telefonom.' },
+  sq: { slot: 'Termin i përkohshëm: {when}', slotHint: 'Termini është në pritje — do ta konfirmojmë me telefon.' },
+  en: { slot: 'Provisional slot: {when}', slotHint: 'Pending — we will confirm it by phone.' },
+});
+
+/** Service used for measurement requests from the website. */
+const MEASURE_SERVICE = 'sv-mjerenje';
 
 /**
  * Lead form used for "free measurement", "request a quote" and plain contact.
@@ -34,12 +46,43 @@ export function MeasureForm({
   const cats = useCategories();
   const settings = useSettings();
   const addInquiry = useDb((s) => s.addInquiry);
+  const tb = useDict(B);
+  const lang = useLang();
   const [form, setForm] = useState({ name: '', phone: '', email: '', city: '', service: defaultService ?? '', date: '', message: defaultMessage ?? '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [sent, setSent] = useState<{ name: string; phone: string } | null>(null);
+  const [sent, setSent] = useState<{ name: string; phone: string; slot?: { start: string; durationMin: number } } | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const today = new Date().toISOString().slice(0, 10);
+
+  /**
+   * A measurement request with a preferred date also books a PENDING appointment (10:00, or the next free
+   * slot that day) linked to the inquiry. Closed / full day → no booking; the team schedules it by hand.
+   */
+  const bookMeasurement = (inquiryId: string, day: string) => {
+    const st = useDb.getState();
+    const service = st.services.find((x) => x.id === MEASURE_SERVICE) ?? st.services.find((x) => x.location === 'onsite');
+    if (!service) return undefined;
+    const slot = webSlot(day, service, { bookings: st.bookings, services: st.services, rules: readRules(st.settings) });
+    if (!slot?.staffId) return undefined;
+    const res = st.addBooking({
+      serviceId: service.id,
+      staffId: slot.staffId,
+      customerName: form.name.trim(),
+      phone: form.phone.trim(),
+      ...(form.email.trim() ? { email: form.email.trim() } : {}),
+      ...(form.city ? { city: form.city } : {}),
+      start: slot.start,
+      location: service.location ?? 'onsite',
+      inquiryId,
+      note: [form.service, form.message.trim()].filter(Boolean).join(' — ') || undefined,
+      status: 'pending',
+    });
+    if (!res.ok) return undefined;
+    // addBooking marks the inquiry as scheduled + seen — a web request must stay new/unseen in the inbox.
+    st.updateInquiry(inquiryId, { status: 'new', seen: false, scheduledAt: res.booking.start });
+    return { start: res.booking.start, durationMin: res.booking.durationMin };
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +95,7 @@ export function MeasureForm({
     if (Object.keys(err).length) return;
     setBusy(true);
     await new Promise((r) => setTimeout(r, 650));
-    addInquiry({
+    const inq = addInquiry({
       type,
       name: form.name.trim(),
       phone: form.phone.trim(),
@@ -63,8 +106,9 @@ export function MeasureForm({
       message: form.message.trim() || '—',
       preferredDate: form.date || undefined,
     });
+    const slot = type === 'measurement' && form.date ? bookMeasurement(inq.id, form.date) : undefined;
     setBusy(false);
-    setSent({ name: form.name.trim().split(' ')[0], phone: form.phone.trim() });
+    setSent({ name: form.name.trim().split(' ')[0], phone: form.phone.trim(), slot });
     onDone?.();
   };
 
@@ -76,6 +120,15 @@ export function MeasureForm({
         </span>
         <h3 className="display mt-5 text-3xl">{t('f_successTitle', { name: sent.name })}</h3>
         <p className="mt-2 max-w-sm text-muted">{t('f_successText', { phone: sent.phone })}</p>
+        {sent.slot && (
+          <div className="mt-5 flex max-w-sm items-start gap-3 rounded-2xl bg-sand/60 px-4 py-3 text-left ring-1 ring-line">
+            <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
+            <span className="text-sm">
+              <span className="block font-semibold text-ink">{tb('slot', { when: `${longDate(sent.slot.start, lang)}, ${timeRange(sent.slot.start, sent.slot.durationMin)}` })}</span>
+              <span className="mt-0.5 block text-muted">{tb('slotHint')}</span>
+            </span>
+          </div>
+        )}
         <Button
           variant="outline"
           className="mt-6"

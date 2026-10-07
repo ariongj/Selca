@@ -2,200 +2,296 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { toast } from 'sonner';
 import {
-  ArrowRight, Ban, Building2, CalendarClock, CheckCircle2, ExternalLink, Mail, MapPin, MessageSquareQuote, Phone, Printer,
-  SearchX, Store, Tag, Truck, Wrench, XCircle,
+  Archive, ArchiveRestore, ArrowRight, Ban, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Lock, Mail, MapPin, PackageCheck, PackageX,
+  Phone, Plus, Printer, RotateCcw, SearchX, Store, Tag, Truck, Wrench, X,
 } from 'lucide-react';
 import { Button, ButtonLink } from '@/components/ui/Button';
-import { Badge, EmptyState } from '@/components/ui/misc';
-import { Card, OrderStatusBadge, PageHeader, PaymentStatusBadge, Thumb, confirmDialog } from '@/admin/components/kit';
-import { StatusStepper } from '@/admin/components/orders/StatusStepper';
+import { EmptyState } from '@/components/ui/misc';
+import { Card, PageHeader, Thumb, confirmDialog } from '@/admin/components/kit';
 import { OrderTimeline } from '@/admin/components/orders/OrderTimeline';
-import { ORDER_FLOW, PAY_ICON, customerName, installationAmount, isRecent, localizeLine, mapsUrl, nextStatus, qtyLabel } from '@/admin/components/orders/helpers';
+import { FulfilDialog } from '@/admin/components/orders/FulfilDialog';
+import { RefundDialog } from '@/admin/components/orders/RefundDialog';
+import {
+  PAY_ICON, archivePatch, archivedAtOf, channelOf, customerLink, customerName, discountName, installationAmount, isCarrierKey, localizeLine, mapsUrl,
+  pluralKey, qtyLabel,
+} from '@/admin/components/orders/helpers';
+import { ArchivedBadge, CancelledBadge, FulfilBadge, PayBadge, ReturnBadge, StatusGlyph } from '@/admin/components/orders/status';
+import { ActionMenu, CodeChip, Eyebrow, SumRow, Tip, type MenuItem } from '@/admin/components/orders/ui';
+import { od } from '@/admin/components/orders/dict';
+import { adm } from '@/admin/i18n';
 import { LANGS, defineDict, useDict, useLang } from '@/i18n';
 import { common } from '@/i18n/common';
 import { useDb } from '@/store/db';
-import { useSettings } from '@/store/hooks';
-import { date, dateTime, money, perUnit, timeAgo } from '@/lib/format';
-import { cn, initials } from '@/lib/utils';
+import { useCan, useSettings } from '@/store/hooks';
+import { fulfillmentOf, orderLineNet, paymentOf, refundedOf } from '@/lib/orders';
+import { zoneForCity } from '@/lib/pricing';
+import { customerKeyOf } from '@/lib/crm';
+import { date, dateTime, money, perUnit } from '@/lib/format';
+import { href } from '@/lib/paths';
+import { cn, round2 } from '@/lib/utils';
 import type { Order, OrderStatus } from '@/lib/types';
 
 const T = defineDict({
   me: {
-    title: 'Narudžba {n}',
-    placed: 'Kreirana {date}',
-    orderLang: 'Jezik kupca: {lang}',
+    placed: '{date}',
+    customerLang: 'Jezik kupca: {lang}',
+    actions: 'Akcije',
+    prev: 'Novija narudžba',
+    next: 'Starija narudžba',
     printInvoice: 'Štampaj račun',
+    refund: 'Refundiraj…',
+    createReturn: 'Kreiraj povrat',
+    archive: 'Arhiviraj',
+    unarchive: 'Vrati iz arhive',
     cancelOrder: 'Otkaži narudžbu',
-    cancelTitle: 'Otkazati narudžbu {n}?',
-    cancelText: 'Status će biti promijenjen u „Otkazana“. Ako je narudžba plaćena, uplata se označava kao refundirana.',
+    nothingToRefund: 'Nema uplate koja se može refundirati',
+    cancelTitle: 'Otkazati narudžbu #{n}?',
+    cancelText: 'Rezervisana roba se vraća na stanje. Ako je narudžba plaćena, uplata se označava kao refundirana.',
     cancelConfirm: 'Da, otkaži',
-    cancelled: 'Narudžba {n} je otkazana',
-    statusTitle: 'Status narudžbe',
-    statusDesc: 'Pomjerite narudžbu kroz faze — svaka promjena se bilježi u istoriji.',
-    advanceTo: 'Prebaci u „{s}“',
-    notePh: 'Napomena uz promjenu (opciono)',
-    advanced: 'Status je promijenjen u „{s}“',
-    doneTitle: 'Narudžba je završena',
-    doneText: 'Zatvorena {date}',
-    cancelledTitle: 'Narudžba je otkazana',
-    cancelledText: 'Otkazana {date}',
-    stepOf: 'Korak {i} od {n}',
-    items: 'Stavke',
-    itemsDesc: '{n} proizvoda u narudžbi',
-    col_product: 'Proizvod',
-    col_qty: 'Količina',
-    col_price: 'Cijena',
-    col_total: 'Iznos',
+    cancelled: 'Narudžba #{n} je otkazana',
+    archived: 'Narudžba #{n} je arhivirana',
+    unarchived: 'Narudžba #{n} je vraćena u listu',
+    archivedBanner: 'Arhivirana {date} — skrivena iz radnih lista. Plaćanje i isporuka nisu promijenjeni.',
+    cancelledBanner: 'Otkazana {date}.',
+    // items card
+    items: 'Stavke narudžbe',
+    colQty: 'Količina',
+    colTotal: 'Ukupno',
     sku: 'Šifra',
-    installationLine: 'Ugradnja {price}',
-    summary: 'Obračun',
-    coupon: 'Kupon',
-    paidLabel: 'Plaćeno',
-    dueLabel: 'Za naplatu',
-    customer: 'Kupac',
-    ordersCount: '{n}. narudžba ovog kupca',
-    firstOrder: 'Prva narudžba kupca',
-    allCustomerOrders: 'Sve narudžbe',
-    openMap: 'Otvori na mapi',
-    country: 'Crna Gora',
-    company: 'Firma',
-    pib: 'PIB',
-    customerNote: 'Napomena kupca',
-    deliveryPayment: 'Isporuka i plaćanje',
-    delivery: 'Isporuka',
-    payment: 'Plaćanje',
-    fee: 'Cijena dostave',
-    pickupAt: 'Preuzimanje: {addr}',
-    deliveryDate: 'Termin: {date}',
-    freeReasonInstall: 'Besplatno uz ugradnju',
-    reference: 'Poziv na broj',
+    installation: 'Ugradnja {price}',
+    custom: 'Posebna stavka',
+    orderStatus: 'Status narudžbe',
+    prepare: 'Pripremi isporuku',
+    confirm: 'Potvrdi narudžbu',
+    startProcessing: 'Počni pripremu',
+    scheduleInstall: 'Zakaži ugradnju',
+    markDelivered: 'Označi kao isporučeno',
+    advanced: 'Status: „{s}“',
+    shippedOn: 'Poslato {date}',
+    deliveredOn: 'Isporučeno {date}',
+    trackingNo: 'Praćenje: {n}',
+    // payment card
+    payment: 'Plaćanje i istorija',
+    subtotal: 'Međuzbir',
+    itemsCount: '{n}',
+    shippingRow: 'Dostava · {method}',
+    freeBy: 'Besplatno: {name}',
+    freeInstall: 'Besplatno uz ugradnju',
+    total: 'Ukupno',
+    vat: 'Uključen PDV {rate}%',
+    paidByCustomer: 'Platio kupac',
+    due: 'Za naplatu',
+    refundedRow: 'Refundirano {date}',
+    net: 'Neto',
+    cost: 'Nabavna vrijednost',
+    margin: 'Bruto marža',
+    costHint: 'Vidljivo samo ulogama sa pravom „Kosto“',
     markPaid: 'Označi kao plaćeno',
     markedPaid: 'Uplata je evidentirana',
-    activity: 'Aktivnost',
-    activityDesc: 'Istorija statusa i interne napomene',
+    history: 'Istorija',
+    // side cards
+    customer: 'Kupac',
+    ordersOf: '{n}',
+    noEmail: 'Bez e-maila',
+    delivery: 'Dostava',
+    pickupAt: 'Preuzimanje: {addr}',
+    zone: 'Zona: {zone} · {days} dana',
+    trackingLater: 'Praćenje se dodjeljuje nakon slanja',
+    deliveryDate: 'Termin: {date}',
+    openMap: 'Mapa',
+    notes: 'Napomene',
+    customerNote: 'Napomena kupca',
+    internalNote: 'Interna napomena',
+    noNotes: 'Bez napomena',
+    addNote: 'Dodaj internu napomenu',
+    editNote: 'Uredi',
+    save: 'Sačuvaj',
+    noteSaved: 'Napomena je sačuvana',
+    tags: 'Oznake',
+    addTag: 'Dodaj oznaku…',
+    discount: 'Popust',
+    noDiscount: 'Bez popusta',
+    returns: 'Povrati',
+    company: 'Firma',
+    pib: 'PIB',
     notFound: 'Narudžba nije pronađena',
-    notFoundText: 'Moguće je da je obrisana ili da link nije ispravan.',
+    notFoundText: 'Možda je obrisana ili link nije ispravan.',
     backToOrders: 'Nazad na narudžbe',
   },
   sq: {
-    title: 'Porosia {n}',
-    placed: 'Krijuar më {date}',
-    orderLang: 'Gjuha e klientit: {lang}',
+    placed: '{date}',
+    customerLang: 'Gjuha e klientit: {lang}',
+    actions: 'Veprime',
+    prev: 'Porosia më e re',
+    next: 'Porosia më e vjetër',
     printInvoice: 'Printo faturën',
+    refund: 'Rimburso…',
+    createReturn: 'Krijo kthim',
+    archive: 'Arkivo',
+    unarchive: 'Hiq nga arkivi',
     cancelOrder: 'Anulo porosinë',
-    cancelTitle: 'Të anulohet porosia {n}?',
-    cancelText: 'Statusi do të ndryshojë në „E anuluar“. Nëse porosia është paguar, pagesa shënohet si e rimbursuar.',
+    nothingToRefund: 'Nuk ka pagesë që mund të rimbursohet',
+    cancelTitle: 'Të anulohet porosia #{n}?',
+    cancelText: 'Malli i rezervuar kthehet në stok. Nëse porosia është paguar, pagesa shënohet si e rimbursuar.',
     cancelConfirm: 'Po, anuloje',
-    cancelled: 'Porosia {n} u anulua',
-    statusTitle: 'Statusi i porosisë',
-    statusDesc: 'Kalojeni porosinë nëpër faza — çdo ndryshim regjistrohet në histori.',
-    advanceTo: 'Kalo në „{s}“',
-    notePh: 'Shënim për ndryshimin (opsional)',
-    advanced: 'Statusi u ndryshua në „{s}“',
-    doneTitle: 'Porosia është përfunduar',
-    doneText: 'Mbyllur më {date}',
-    cancelledTitle: 'Porosia është anuluar',
-    cancelledText: 'Anuluar më {date}',
-    stepOf: 'Hapi {i} nga {n}',
-    items: 'Artikujt',
-    itemsDesc: '{n} produkte në porosi',
-    col_product: 'Produkti',
-    col_qty: 'Sasia',
-    col_price: 'Çmimi',
-    col_total: 'Shuma',
+    cancelled: 'Porosia #{n} u anulua',
+    archived: 'Porosia #{n} u arkivua',
+    unarchived: 'Porosia #{n} u kthye në listë',
+    archivedBanner: 'E arkivuar më {date} — e fshehur nga listat e punës. Pagesa dhe përmbushja nuk ndryshojnë.',
+    cancelledBanner: 'E anuluar më {date}.',
+    items: 'Artikujt e porosisë',
+    colQty: 'Sasi',
+    colTotal: 'Totali',
     sku: 'Kodi',
-    installationLine: 'Montimi {price}',
-    summary: 'Llogaria',
-    coupon: 'Kuponi',
-    paidLabel: 'E paguar',
-    dueLabel: 'Për t’u paguar',
-    customer: 'Klienti',
-    ordersCount: 'Porosia e {n}-të e këtij klienti',
-    firstOrder: 'Porosia e parë e klientit',
-    allCustomerOrders: 'Të gjitha porositë',
-    openMap: 'Hap në hartë',
-    country: 'Mali i Zi',
-    company: 'Kompania',
-    pib: 'NIPT',
-    customerNote: 'Shënimi i klientit',
-    deliveryPayment: 'Dorëzimi dhe pagesa',
-    delivery: 'Dorëzimi',
-    payment: 'Pagesa',
-    fee: 'Kostoja e transportit',
-    pickupAt: 'Marrje: {addr}',
-    deliveryDate: 'Termini: {date}',
-    freeReasonInstall: 'Falas me montim',
-    reference: 'Referenca',
+    installation: 'Montimi {price}',
+    custom: 'Artikull custom',
+    orderStatus: 'Statusi i porosisë',
+    prepare: 'Përgatit dërgesën',
+    confirm: 'Konfirmo porosinë',
+    startProcessing: 'Fillo përgatitjen',
+    scheduleInstall: 'Cakto montimin',
+    markDelivered: 'Shëno si të dorëzuar',
+    advanced: 'Statusi: „{s}“',
+    shippedOn: 'Dërguar më {date}',
+    deliveredOn: 'Dorëzuar më {date}',
+    trackingNo: 'Gjurmimi: {n}',
+    payment: 'Pagesa dhe historiku',
+    subtotal: 'Nëntotali',
+    itemsCount: '{n}',
+    shippingRow: 'Dërgesa · {method}',
+    freeBy: 'Falas: {name}',
+    freeInstall: 'Falas me montim',
+    total: 'Totali',
+    vat: 'TVSH {rate}% e përfshirë',
+    paidByCustomer: 'Paguar nga klienti',
+    due: 'Për t’u paguar',
+    refundedRow: 'Rimbursuar më {date}',
+    net: 'Neto',
+    cost: 'Kosto e mallit',
+    margin: 'Marzha bruto',
+    costHint: 'E dukshme vetëm për rolet me leje „Kosto“',
     markPaid: 'Shëno si të paguar',
     markedPaid: 'Pagesa u regjistrua',
-    activity: 'Aktiviteti',
-    activityDesc: 'Historia e statusit dhe shënimet e brendshme',
+    history: 'Historiku',
+    customer: 'Klienti',
+    ordersOf: '{n}',
+    noEmail: 'Pa e-mail',
+    delivery: 'Dërgesa',
+    pickupAt: 'Marrje: {addr}',
+    zone: 'Zona: {zone} · {days} ditë',
+    trackingLater: 'Gjurmimi caktohet pas dërgimit',
+    deliveryDate: 'Termini: {date}',
+    openMap: 'Harta',
+    notes: 'Shënime',
+    customerNote: 'Shënimi i klientit',
+    internalNote: 'Shënim i brendshëm',
+    noNotes: 'Pa shënime',
+    addNote: 'Shto shënim të brendshëm',
+    editNote: 'Ndrysho',
+    save: 'Ruaj',
+    noteSaved: 'Shënimi u ruajt',
+    tags: 'Etiketat',
+    addTag: 'Shto etiketë…',
+    discount: 'Zbritja',
+    noDiscount: 'Pa zbritje',
+    returns: 'Kthimet',
+    company: 'Kompania',
+    pib: 'NIPT',
     notFound: 'Porosia nuk u gjet',
     notFoundText: 'Mund të jetë fshirë ose lidhja nuk është e saktë.',
     backToOrders: 'Kthehu te porositë',
   },
   en: {
-    title: 'Order {n}',
-    placed: 'Placed {date}',
-    orderLang: 'Customer language: {lang}',
+    placed: '{date}',
+    customerLang: 'Customer language: {lang}',
+    actions: 'Actions',
+    prev: 'Newer order',
+    next: 'Older order',
     printInvoice: 'Print invoice',
+    refund: 'Refund…',
+    createReturn: 'Create return',
+    archive: 'Archive',
+    unarchive: 'Unarchive',
     cancelOrder: 'Cancel order',
-    cancelTitle: 'Cancel order {n}?',
-    cancelText: 'The status will change to “Cancelled”. If the order was paid, the payment is marked as refunded.',
+    nothingToRefund: 'There is no payment left to refund',
+    cancelTitle: 'Cancel order #{n}?',
+    cancelText: 'Reserved stock goes back to inventory. If the order was paid, the payment is marked as refunded.',
     cancelConfirm: 'Yes, cancel it',
-    cancelled: 'Order {n} was cancelled',
-    statusTitle: 'Order status',
-    statusDesc: 'Move the order through its stages — every change is logged in the history.',
-    advanceTo: 'Move to “{s}”',
-    notePh: 'Note for this change (optional)',
-    advanced: 'Status changed to “{s}”',
-    doneTitle: 'Order completed',
-    doneText: 'Closed on {date}',
-    cancelledTitle: 'Order cancelled',
-    cancelledText: 'Cancelled on {date}',
-    stepOf: 'Step {i} of {n}',
-    items: 'Items',
-    itemsDesc: '{n} products in this order',
-    col_product: 'Product',
-    col_qty: 'Quantity',
-    col_price: 'Price',
-    col_total: 'Amount',
+    cancelled: 'Order #{n} was cancelled',
+    archived: 'Order #{n} archived',
+    unarchived: 'Order #{n} is back in the list',
+    archivedBanner: 'Archived on {date} — hidden from the working lists. Payment and fulfilment are unchanged.',
+    cancelledBanner: 'Cancelled on {date}.',
+    items: 'Order items',
+    colQty: 'Qty',
+    colTotal: 'Total',
     sku: 'SKU',
-    installationLine: 'Installation {price}',
-    summary: 'Summary',
-    coupon: 'Coupon',
-    paidLabel: 'Paid',
-    dueLabel: 'Amount due',
-    customer: 'Customer',
-    ordersCount: 'Order no. {n} from this customer',
-    firstOrder: 'Customer’s first order',
-    allCustomerOrders: 'All orders',
-    openMap: 'Open in Maps',
-    country: 'Montenegro',
-    company: 'Company',
-    pib: 'Tax ID',
-    customerNote: 'Customer note',
-    deliveryPayment: 'Delivery & payment',
-    delivery: 'Delivery',
-    payment: 'Payment',
-    fee: 'Delivery fee',
-    pickupAt: 'Pickup: {addr}',
-    deliveryDate: 'Scheduled: {date}',
-    freeReasonInstall: 'Free with installation',
-    reference: 'Payment reference',
+    installation: 'Installation {price}',
+    custom: 'Custom item',
+    orderStatus: 'Order status',
+    prepare: 'Prepare shipment',
+    confirm: 'Confirm order',
+    startProcessing: 'Start preparing',
+    scheduleInstall: 'Book installation',
+    markDelivered: 'Mark as delivered',
+    advanced: 'Status: “{s}”',
+    shippedOn: 'Shipped {date}',
+    deliveredOn: 'Delivered {date}',
+    trackingNo: 'Tracking: {n}',
+    payment: 'Payment & history',
+    subtotal: 'Subtotal',
+    itemsCount: '{n}',
+    shippingRow: 'Delivery · {method}',
+    freeBy: 'Free: {name}',
+    freeInstall: 'Free with installation',
+    total: 'Total',
+    vat: 'Includes {rate}% VAT',
+    paidByCustomer: 'Paid by customer',
+    due: 'Amount due',
+    refundedRow: 'Refunded {date}',
+    net: 'Net',
+    cost: 'Cost of goods',
+    margin: 'Gross margin',
+    costHint: 'Only visible to roles with the “Cost” permission',
     markPaid: 'Mark as paid',
     markedPaid: 'Payment recorded',
-    activity: 'Activity',
-    activityDesc: 'Status history and internal notes',
+    history: 'History',
+    customer: 'Customer',
+    ordersOf: '{n}',
+    noEmail: 'No e-mail',
+    delivery: 'Delivery',
+    pickupAt: 'Pickup: {addr}',
+    zone: 'Zone: {zone} · {days} days',
+    trackingLater: 'Tracking is assigned once shipped',
+    deliveryDate: 'Scheduled: {date}',
+    openMap: 'Map',
+    notes: 'Notes',
+    customerNote: 'Customer note',
+    internalNote: 'Internal note',
+    noNotes: 'No notes',
+    addNote: 'Add an internal note',
+    editNote: 'Edit',
+    save: 'Save',
+    noteSaved: 'Note saved',
+    tags: 'Tags',
+    addTag: 'Add tag…',
+    discount: 'Discount',
+    noDiscount: 'No discount',
+    returns: 'Returns',
+    company: 'Company',
+    pib: 'Tax ID',
     notFound: 'Order not found',
     notFoundText: 'It may have been deleted or the link is incorrect.',
     backToOrders: 'Back to orders',
   },
 });
 
+type Dict = ReturnType<typeof useDict<(typeof T)['me']>>;
+
 export default function OrderDetail() {
   const { id } = useParams();
   const t = useDict(T, 'admin');
+  const ta = useDict(adm, 'admin');
   const order = useDb((s) => s.orders.find((o) => o.id === id || o.number === id));
   const markOrderSeen = useDb((s) => s.markOrderSeen);
 
@@ -206,14 +302,14 @@ export default function OrderDetail() {
   if (!order) {
     return (
       <div className="animate-fade-in">
-        <PageHeader title={t('notFound')} back="/admin/narudzbe" />
+        <PageHeader back="/admin/narudzbe" breadcrumbs={[{ label: ta('nav_orders'), to: '/admin/narudzbe' }, t('notFound')]} title={t('notFound')} />
         <Card>
           <EmptyState
             icon={<SearchX className="h-6 w-6" />}
             title={t('notFound')}
             text={t('notFoundText')}
             action={
-              <ButtonLink to="/admin/narudzbe" variant="dark" size="sm" shape="rounded">
+              <ButtonLink to="/admin/narudzbe" size="sm" shape="rounded">
                 {t('backToOrders')}
               </ButtonLink>
             }
@@ -227,31 +323,30 @@ export default function OrderDetail() {
 
 function OrderView({ order }: { order: Order }) {
   const t = useDict(T, 'admin');
-  const tc = useDict(common, 'admin');
+  const to = useDict(od, 'admin');
+  const ta = useDict(adm, 'admin');
   const lang = useLang('admin');
-  const settings = useSettings();
+  const can = useCan();
+  const orders = useDb((s) => s.orders);
   const setOrderStatus = useDb((s) => s.setOrderStatus);
-  const products = useDb((s) => s.products);
-  const allOrders = useDb((s) => s.orders);
-  const [note, setNote] = useState('');
+  const updateOrder = useDb((s) => s.updateOrder);
+  const logAudit = useDb((s) => s.logAudit);
+  const [fulfilOpen, setFulfilOpen] = useState(false);
+  const [refundOpen, setRefundOpen] = useState(false);
 
-  const next = nextStatus(order.status);
+  const pay = paymentOf(order);
+  const ful = fulfillmentOf(order);
   const cancelled = order.status === 'cancelled';
-  const canCancel = !cancelled && order.status !== 'completed';
+  const archivedAt = archivedAtOf(order);
+  const refundable = round2(order.total - refundedOf(order)) > 0 && (pay === 'paid' || pay === 'partially_refunded');
   const lastAt = (s: OrderStatus) => [...order.timeline].reverse().find((e) => e.status === s)?.at ?? order.createdAt;
 
-  const history = useMemo(() => {
-    const email = order.customer.email.toLowerCase();
-    const mine = allOrders.filter((o) => o.customer.email.toLowerCase() === email).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return { count: mine.length, index: mine.findIndex((o) => o.id === order.id) + 1 };
-  }, [allOrders, order.customer.email, order.id]);
-
-  const advance = () => {
-    if (!next) return;
-    setOrderStatus(order.id, next, note.trim() || undefined);
-    setNote('');
-    toast.success(t('advanced', { s: tc(`status_${next}`) }));
-  };
+  // prev = newer, next = older (list order)
+  const nav = useMemo(() => {
+    const sorted = [...orders].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const i = sorted.findIndex((o) => o.id === order.id);
+    return { prev: i > 0 ? sorted[i - 1] : null, next: i >= 0 && i < sorted.length - 1 ? sorted[i + 1] : null };
+  }, [orders, order.id]);
 
   const cancel = async () => {
     const ok = await confirmDialog({ title: t('cancelTitle', { n: order.number }), text: t('cancelText'), confirmLabel: t('cancelConfirm'), danger: true });
@@ -260,357 +355,710 @@ function OrderView({ order }: { order: Order }) {
     toast.success(t('cancelled', { n: order.number }));
   };
 
-  const orderLangLabel = LANGS.find((l) => l.code === order.lang)?.label ?? order.lang;
+  const setArchived = (on: boolean) => {
+    updateOrder(order.id, archivePatch(on ? new Date().toISOString() : null));
+    logAudit({ action: on ? 'archive' : 'restore', object: 'order', objectId: order.id, detail: order.number });
+    toast.success(on ? t('archived', { n: order.number }) : t('unarchived', { n: order.number }));
+  };
+
+  const menu: MenuItem[] = [
+    { label: t('printInvoice'), icon: <Printer />, onClick: () => window.open(href(`/admin/faktura/${order.id}`), '_blank', 'noopener') },
+    {
+      label: t('refund'),
+      icon: <RotateCcw />,
+      onClick: () => setRefundOpen(true),
+      disabled: !can('orders', 'refund') || !refundable,
+      hint: !can('orders', 'refund') ? to('noPermission') : t('nothingToRefund'),
+    },
+    ...(can('returns', 'edit') && !cancelled ? [{ label: t('createReturn'), icon: <PackageX />, to: `/admin/povrati?order=${order.id}&new=1` } as MenuItem] : []),
+    { type: 'separator' },
+    archivedAt
+      ? { label: t('unarchive'), icon: <ArchiveRestore />, onClick: () => setArchived(false), disabled: !can('orders', 'archive'), hint: to('noPermission') }
+      : { label: t('archive'), icon: <Archive />, onClick: () => setArchived(true), disabled: !can('orders', 'archive'), hint: to('noPermission') },
+    ...(!cancelled && order.status !== 'completed'
+      ? [{ label: t('cancelOrder'), icon: <Ban />, danger: true, onClick: cancel, disabled: !can('orders', 'cancel'), hint: to('noPermission') } as MenuItem]
+      : []),
+  ];
+
+  const orderLang = LANGS.find((l) => l.code === order.lang)?.label ?? order.lang;
 
   return (
     <div className="animate-fade-in">
       <PageHeader
         back="/admin/narudzbe"
-        title={t('title', { n: order.number })}
+        breadcrumbs={[{ label: ta('nav_orders'), to: '/admin/narudzbe' }, `#${order.number}`]}
+        title={`#${order.number}`}
         badge={
           <span className="flex flex-wrap items-center gap-1.5">
-            <OrderStatusBadge status={order.status} />
-            <PaymentStatusBadge status={order.payment.status} />
+            <PayBadge state={pay} />
+            {cancelled ? <CancelledBadge /> : <FulfilBadge state={ful} />}
+            {archivedAt && <ArchivedBadge />}
           </span>
         }
         description={
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span>{t('placed', { date: dateTime(order.createdAt, lang) })}</span>
-            {isRecent(order.createdAt) && (
-              <>
-                <span className="text-line">•</span>
-                <span>{timeAgo(order.createdAt, lang)}</span>
-              </>
-            )}
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span>{dateTime(order.createdAt, lang)}</span>
+            <span className="text-ink/25">·</span>
+            <span>{to(`channel_${channelOf(order)}`)}</span>
             {order.lang !== lang && (
               <>
-                <span className="text-line">•</span>
-                <span>{t('orderLang', { lang: orderLangLabel })}</span>
+                <span className="text-ink/25">·</span>
+                <span>{t('customerLang', { lang: orderLang })}</span>
               </>
             )}
           </span>
         }
         actions={
           <>
-            {canCancel && (
-              <Button variant="ghost" size="sm" shape="rounded" className="text-red-700 hover:bg-red-50" icon={<XCircle className="h-4 w-4" />} onClick={cancel}>
-                {t('cancelOrder')}
-              </Button>
-            )}
-            <Button variant="outline" size="sm" shape="rounded" icon={<Printer className="h-4 w-4" />} onClick={() => window.open(`/admin/faktura/${order.id}`, '_blank', 'noopener')}>
-              {t('printInvoice')}
-            </Button>
+            <span className="hidden items-center sm:inline-flex">
+              <NavArrow to={nav.prev ? `/admin/narudzbe/${nav.prev.id}` : null} label={t('prev')} icon={<ChevronLeft className="h-4 w-4" />} className="rounded-l-lg" />
+              <NavArrow to={nav.next ? `/admin/narudzbe/${nav.next.id}` : null} label={t('next')} icon={<ChevronRight className="h-4 w-4" />} className="-ml-px rounded-r-lg" />
+            </span>
+            <ActionMenu label={t('actions')} items={menu} />
           </>
         }
       />
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        {/* ---------------- Main column ---------------- */}
-        <div className="min-w-0 space-y-5">
-          <Card title={t('statusTitle')} description={t('statusDesc')} actions={<span className="hidden whitespace-nowrap text-xs font-semibold text-muted sm:inline">{!cancelled && t('stepOf', { i: ORDER_FLOW.indexOf(order.status) + 1, n: ORDER_FLOW.length })}</span>}>
-            {cancelled && (
-              <div className="mb-5 flex items-start gap-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-red-600/10">
-                <Ban className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  <strong className="font-bold">{t('cancelledTitle')}</strong> · {t('cancelledText', { date: dateTime(lastAt('cancelled'), lang) })}
-                </span>
-              </div>
-            )}
-            <StatusStepper order={order} />
-            {next && !cancelled && (
-              <form
-                className="mt-6 flex flex-col gap-2.5 border-t border-line/70 pt-5 sm:flex-row"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  advance();
-                }}
-              >
-                <input
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder={t('notePh')}
-                  className="h-10 w-full min-w-0 rounded-lg sm:flex-1 border border-line bg-white px-3.5 text-sm outline-none transition placeholder:text-muted/80 focus:border-ink/40 focus:ring-4 focus:ring-ink/5"
-                />
-                <Button type="submit" size="sm" shape="rounded" className="h-10" iconRight={<ArrowRight className="h-4 w-4" />}>
-                  {t('advanceTo', { s: tc(`status_${next}`) })}
-                </Button>
-              </form>
-            )}
-            {order.status === 'completed' && (
-              <div className="mt-6 flex items-start gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 ring-1 ring-emerald-600/10">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  <strong className="font-bold">{t('doneTitle')}</strong> · {t('doneText', { date: date(lastAt('completed'), lang) })}
-                </span>
-              </div>
-            )}
-          </Card>
-
-          <Card title={t('items')} description={t('itemsDesc', { n: order.items.length })} padded={false}>
-            <div className="hidden grid-cols-[minmax(0,1fr)_128px_96px_112px] gap-4 border-b border-line bg-canvas/60 px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted sm:grid">
-              <span>{t('col_product')}</span>
-              <span className="text-right">{t('col_qty')}</span>
-              <span className="text-right">{t('col_price')}</span>
-              <span className="text-right">{t('col_total')}</span>
-            </div>
-            <ul className="divide-y divide-line/70">
-              {order.items.map((l, i) => {
-                const product = products.find((p) => p.id === l.productId);
-                const loc = localizeLine(l, product, order.lang, lang);
-                const inst = installationAmount(l);
-                return (
-                  <li key={`${l.productId}-${i}`} className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-3.5 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_128px_96px_112px] sm:gap-4 sm:px-5">
-                    <div className="contents sm:flex sm:min-w-0 sm:gap-3.5">
-                      <Thumb src={l.image} className="h-14 w-14 rounded-xl" />
-                      <div className="min-w-0">
-                        {product ? (
-                          <Link to={`/admin/proizvodi/${product.id}`} className="font-semibold leading-snug text-ink hover:text-brand-700 hover:underline">
-                            {loc.name}
-                          </Link>
-                        ) : (
-                          <span className="font-semibold leading-snug text-ink">{loc.name}</span>
-                        )}
-                        <p className="mt-0.5 text-xs text-muted">
-                          {t('sku')} {l.sku}
-                          {loc.options && <span> · {loc.options}</span>}
-                        </p>
-                        {l.installation && l.installationPrice > 0 && (
-                          <p className="mt-1.5 inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-sage/10 px-2 py-0.5 text-[12px] font-semibold text-sage">
-                            <Wrench className="h-3 w-3" />
-                            {t('installationLine', { price: `${money(l.installationPrice, lang)} ${perUnit(l.unit, lang)}` })}
-                          </p>
-                        )}
-                        {/* mobile: qty × price / total */}
-                        <div className="mt-2 flex items-end justify-between gap-3 sm:hidden">
-                          <span className="text-[13px] text-muted">
-                            {qtyLabel(l, lang, tc('packs'))} × {money(l.unitPrice, lang)}
-                          </span>
-                          <span className="text-right">
-                            <span className="block font-bold tabular-nums">{money(l.lineTotal, lang)}</span>
-                            {inst > 0 && <span className="block text-xs font-semibold tabular-nums text-sage">+ {money(inst, lang)}</span>}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="hidden text-right text-sm tabular-nums text-ink-soft sm:block">
-                      {qtyLabel(l, lang, tc('packs'))}
-                      {l.unit === 'm2' && l.packSize ? <span className="mt-0.5 block text-xs text-muted">{l.packSize} m² / {tc('packs')}</span> : null}
-                    </div>
-                    <div className="hidden text-right text-sm tabular-nums text-ink-soft sm:block">
-                      {money(l.unitPrice, lang)}
-                      <span className="mt-0.5 block text-xs text-muted">{perUnit(l.unit, lang)}</span>
-                    </div>
-                    <div className="hidden text-right tabular-nums sm:block">
-                      <span className="block font-bold text-ink">{money(l.lineTotal, lang)}</span>
-                      {inst > 0 && <span className="mt-0.5 block text-xs font-semibold text-sage">+ {money(inst, lang)}</span>}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </Card>
-
-          <Card title={t('summary')}>
-            <dl className="space-y-1">
-              <Row label={tc('subtotal')} value={money(order.subtotal, lang)} />
-              {order.installationTotal > 0 && <Row label={tc('installation')} value={money(order.installationTotal, lang)} />}
-              {order.discount > 0 && (
-                <Row
-                  label={
-                    <span className="inline-flex items-center gap-2">
-                      {tc('discount')}
-                      {order.coupon?.code && (
-                        <Badge tone="outline" className="gap-1 tracking-wider">
-                          <Tag className="h-3 w-3" />
-                          {order.coupon.code}
-                        </Badge>
-                      )}
-                    </span>
-                  }
-                  value={<span className="text-emerald-700">− {money(order.discount, lang)}</span>}
-                />
-              )}
-              <Row
-                label={`${tc('shipping')} · ${tc(`delivery_${order.delivery.method}`)}`}
-                value={order.shipping > 0 ? money(order.shipping, lang) : <span className="font-semibold text-emerald-700">{tc('free')}</span>}
-              />
-            </dl>
-            <div className="mt-3 flex items-end justify-between gap-4 border-t border-line pt-4">
-              <div>
-                <div className="text-[15px] font-bold text-ink">{tc('total')}</div>
-                <div className="mt-0.5 text-xs text-muted">
-                  {tc('vatIncluded', { rate: settings.vatRate })}: {money(order.vat, lang)}
-                </div>
-              </div>
-              <div className={cn('text-2xl font-extrabold tracking-tight tabular-nums', cancelled ? 'text-muted line-through' : 'text-ink')}>{money(order.total, lang)}</div>
-            </div>
-            {!cancelled && (
-              <div className={cn('mt-4 flex items-center justify-between rounded-xl px-4 py-2.5 text-sm', order.payment.status === 'paid' ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900')}>
-                <span className="font-semibold">{order.payment.status === 'paid' ? t('paidLabel') : t('dueLabel')}</span>
-                <span className="font-bold tabular-nums">{money(order.total, lang)}</span>
-              </div>
-            )}
-          </Card>
+      {(archivedAt || cancelled) && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-white px-4 py-3 text-[13.5px] text-ink-soft">
+          <StatusGlyph glyph={cancelled ? 'cross' : 'dash'} className={cancelled ? 'text-[#8A1B0A]' : 'text-ink'} />
+          <span className="min-w-0 flex-1">{cancelled ? t('cancelledBanner', { date: dateTime(lastAt('cancelled'), lang) }) : t('archivedBanner', { date: dateTime(archivedAt!, lang) })}</span>
+          {archivedAt && can('orders', 'archive') && (
+            <Button variant="outline" size="xs" shape="rounded" icon={<ArchiveRestore className="h-3.5 w-3.5" />} onClick={() => setArchived(false)}>
+              {t('unarchive')}
+            </Button>
+          )}
         </div>
+      )}
 
-        {/* ---------------- Side column ---------------- */}
-        <div className="grid min-w-0 gap-5 md:grid-cols-2 xl:grid-cols-1">
-          <CustomerCard order={order} history={history} />
-
-          <Card title={t('deliveryPayment')}>
-            <div className="space-y-4">
-              <InfoBlock icon={order.delivery.method === 'pickup' ? <Store className="h-4 w-4" /> : <Truck className="h-4 w-4" />} label={t('delivery')}>
-                <p className="font-semibold text-ink">{tc(`delivery_${order.delivery.method}`)}</p>
-                <p className="mt-0.5 text-[13px] text-muted">
-                  {order.delivery.method === 'pickup'
-                    ? t('pickupAt', { addr: settings.pickupAddress })
-                    : `${t('fee')}: ${order.shipping > 0 ? money(order.shipping, lang) : order.installationTotal > 0 ? t('freeReasonInstall') : tc('free')}`}
-                </p>
-                {order.delivery.date && (
-                  <p className="mt-1 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-soft">
-                    <CalendarClock className="h-3.5 w-3.5" />
-                    {t('deliveryDate', { date: date(order.delivery.date, lang, { weekday: 'short', day: 'numeric', month: 'short' }) })}
-                  </p>
-                )}
-              </InfoBlock>
-              <div className="border-t border-line/70" />
-              <PaymentBlock order={order} />
-            </div>
-          </Card>
-
-          <Card title={t('activity')} description={t('activityDesc')} className="md:col-span-2 xl:col-span-1">
-            <OrderTimeline order={order} />
-          </Card>
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-5">
+          <ItemsCard order={order} t={t} onFulfil={() => setFulfilOpen(true)} />
+          <PaymentCard order={order} t={t} onRefund={() => setRefundOpen(true)} refundable={refundable} />
+        </div>
+        <div className="grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-1">
+          <CustomerCard order={order} t={t} />
+          <DeliveryCard order={order} t={t} />
+          <NotesCard order={order} t={t} />
+          <DiscountCard order={order} t={t} />
+          <ReturnsCard order={order} t={t} />
         </div>
       </div>
+
+      {can('orders', 'edit') && <FulfilDialog order={order} open={fulfilOpen} onClose={() => setFulfilOpen(false)} />}
+      {can('orders', 'refund') && <RefundDialog order={order} open={refundOpen} onClose={() => setRefundOpen(false)} />}
     </div>
   );
 }
 
-function PaymentBlock({ order }: { order: Order }) {
-  const t = useDict(T, 'admin');
-  const tc = useDict(common, 'admin');
-  const updateOrder = useDb((s) => s.updateOrder);
-  const PayIcon = PAY_ICON[order.payment.method];
-  const canMarkPaid = order.payment.status === 'pending' && order.status !== 'cancelled';
-
-  const markPaid = () => {
-    updateOrder(order.id, {
-      payment: { ...order.payment, status: 'paid' },
-      timeline: [...order.timeline, { at: new Date().toISOString(), status: 'payment', by: 'admin' }],
-    });
-    toast.success(t('markedPaid'));
-  };
-
+function NavArrow({ to, label, icon, className }: { to: string | null; label: string; icon: ReactNode; className?: string }) {
+  const cls = cn('grid h-9 w-9 place-items-center border border-ink/15 bg-white text-ink transition-colors', className);
+  if (!to)
+    return (
+      <span className={cn(cls, 'cursor-not-allowed text-ink/25')} aria-disabled>
+        {icon}
+      </span>
+    );
   return (
-    <InfoBlock icon={<PayIcon className="h-4 w-4" />} label={t('payment')}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-semibold text-ink">{tc(`pay_${order.payment.method}`)}</p>
-        <PaymentStatusBadge status={order.payment.status} />
-      </div>
-      {order.payment.method === 'bank' && (
-        <p className="mt-0.5 text-[13px] text-muted">
-          {t('reference')}: <span className="font-bold tracking-wide text-ink">{order.number}</span>
-        </p>
-      )}
-      {canMarkPaid && (
-        <Button variant="soft" size="sm" shape="rounded" className="mt-3 w-full" icon={<CheckCircle2 className="h-4 w-4" />} onClick={markPaid}>
-          {t('markPaid')}
-        </Button>
-      )}
-    </InfoBlock>
+    <Link to={to} title={label} aria-label={label} className={cn(cls, 'hover:border-ink/35 hover:bg-canvas')}>
+      {icon}
+    </Link>
   );
 }
 
-function CustomerCard({ order, history }: { order: Order; history: { count: number; index: number } }) {
-  const t = useDict(T, 'admin');
-  const c = order.customer;
-  const name = customerName(order);
+/* ================================================================== */
+/* Artikujt e porosisë                                                 */
+/* ================================================================== */
+function ItemsCard({ order, t, onFulfil }: { order: Order; t: Dict; onFulfil: () => void }) {
+  const to = useDict(od, 'admin');
+  const tc = useDict(common, 'admin');
+  const lang = useLang('admin');
+  const can = useCan();
+  const products = useDb((s) => s.products);
+  const discounts = useDb((s) => s.discounts);
+  const setOrderStatus = useDb((s) => s.setOrderStatus);
+  const ful = fulfillmentOf(order);
+  const s = order.status;
+  const editable = can('orders', 'edit') && s !== 'cancelled' && s !== 'completed';
+  const hasInstallation = order.items.some((l) => l.installation && l.installationPrice > 0);
+  const f = order.fulfillment;
+
+  const advance = (next: OrderStatus) => {
+    setOrderStatus(order.id, next);
+    toast.success(t('advanced', { s: tc(`status_${next}`) }));
+  };
+
   return (
     <Card
-      title={t('customer')}
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          {t('items')}
+          {s === 'cancelled' ? <CancelledBadge /> : <FulfilBadge state={ful} />}
+        </span>
+      }
       actions={
-        history.count > 1 ? (
-          <Link to={`/admin/narudzbe?q=${encodeURIComponent(c.email)}`} className="text-[13px] font-semibold text-brand-700 hover:underline">
-            {t('allCustomerOrders')} ({history.count})
+        <span className="hidden items-center gap-1.5 text-[12.5px] text-muted sm:inline-flex">
+          {t('orderStatus')}: <span className="font-semibold text-ink">{tc(`status_${s}`)}</span>
+        </span>
+      }
+      padded={false}
+    >
+      <ul className="divide-y divide-line/70">
+        {order.items.map((l, i) => {
+          const product = products.find((p) => p.id === l.productId);
+          const loc = localizeLine(l, product, order.lang, lang);
+          const inst = installationAmount(l);
+          const gross = round2(l.lineTotal + inst);
+          const net = orderLineNet(order, i);
+          const allocations = l.allocations ?? [];
+          return (
+            <li key={`${l.productId}-${i}`} className="flex gap-3 px-4 py-3.5 sm:px-5">
+              <Thumb src={l.image} className="h-12 w-12 rounded-lg" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                  <div className="min-w-0">
+                    {product && can('products') ? (
+                      <Link to={`/admin/proizvodi/${product.id}`} className="font-semibold leading-snug text-ink hover:underline">
+                        {loc.name}
+                      </Link>
+                    ) : (
+                      <span className="font-semibold leading-snug text-ink">{loc.name}</span>
+                    )}
+                    <p className="mt-0.5 text-[12.5px] text-muted">
+                      {l.custom ? t('custom') : `${t('sku')} ${l.sku}`}
+                      {loc.options && <> · {loc.options}</>}
+                    </p>
+                    {inst > 0 && (
+                      <p className="mt-1 inline-flex items-center gap-1.5 text-[12.5px] text-ink-soft">
+                        <Wrench className="h-3.5 w-3.5" />
+                        {t('installation', { price: `${money(l.installationPrice, lang)} ${perUnit(l.unit, lang)}` })} = {money(inst, lang)}
+                      </p>
+                    )}
+                    {allocations.length > 0 && (
+                      <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                        {allocations.map((a) => {
+                          const applied = order.discounts?.find((d) => d.id === a.discountId);
+                          return (
+                            <li key={a.discountId} className="inline-flex items-center gap-1 rounded-md bg-canvas px-1.5 py-0.5 text-[12px] text-ink-soft">
+                              <Tag className="h-3 w-3" />
+                              {applied?.code ?? discountName(a.discountId, applied?.title ?? '', discounts, lang)}
+                              <span className="tabular-nums">−{money(a.amount, lang)}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-baseline justify-between gap-6 sm:justify-end">
+                    <span className="text-[13px] tabular-nums text-ink-soft">
+                      {qtyLabel(l, lang, tc('packs'))} × {money(l.unitPrice, lang)}
+                    </span>
+                    <span className="min-w-[88px] text-right tabular-nums">
+                      {net < gross - 0.004 && <span className="block text-[12px] text-muted line-through">{money(gross, lang)}</span>}
+                      <span className="block font-semibold text-ink">{money(net, lang)}</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* fulfilment footer */}
+      <div className="flex flex-col gap-3 border-t border-line/70 bg-canvas/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="min-w-0 text-[13px] text-ink-soft">
+          {f?.shippedAt ? (
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <Truck className="h-4 w-4 text-ink" />
+              <span>{t('shippedOn', { date: date(f.shippedAt, lang, { day: 'numeric', month: 'short' }) })}</span>
+              {f.carrier && <span>· {isCarrierKey(f.carrier) ? to(`carrier_${f.carrier}`) : f.carrier}</span>}
+              {f.tracking && <span>· {t('trackingNo', { n: f.tracking })}</span>}
+              {f.deliveredAt && <span>· {t('deliveredOn', { date: date(f.deliveredAt, lang, { day: 'numeric', month: 'short' }) })}</span>}
+            </span>
+          ) : (
+            <span className="sm:hidden">
+              {t('orderStatus')}: <span className="font-semibold text-ink">{tc(`status_${s}`)}</span>
+            </span>
+          )}
+        </div>
+        {editable && (
+          <div className="flex flex-wrap gap-2 sm:justify-end">
+            {s === 'new' && (
+              <Button variant="outline" size="sm" shape="rounded" icon={<CheckCircle2 className="h-4 w-4" />} onClick={() => advance('confirmed')}>
+                {t('confirm')}
+              </Button>
+            )}
+            {s === 'confirmed' && (
+              <Button variant="outline" size="sm" shape="rounded" icon={<ArrowRight className="h-4 w-4" />} onClick={() => advance('processing')}>
+                {t('startProcessing')}
+              </Button>
+            )}
+            {(ful === 'unfulfilled' || ful === 'partial') && (
+              <Button size="sm" shape="rounded" icon={<PackageCheck className="h-4 w-4" />} onClick={onFulfil}>
+                {t('prepare')}
+              </Button>
+            )}
+            {s === 'shipped' && hasInstallation && (
+              <Button variant="outline" size="sm" shape="rounded" icon={<Wrench className="h-4 w-4" />} onClick={() => advance('installation')}>
+                {t('scheduleInstall')}
+              </Button>
+            )}
+            {(s === 'shipped' || s === 'installation') && ful !== 'partial' && (
+              <Button size="sm" shape="rounded" icon={<CheckCircle2 className="h-4 w-4" />} onClick={() => advance('completed')}>
+                {t('markDelivered')}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/* ================================================================== */
+/* Pagesa dhe historiku                                                */
+/* ================================================================== */
+function PaymentCard({ order, t, onRefund, refundable }: { order: Order; t: Dict; onRefund: () => void; refundable: boolean }) {
+  const to = useDict(od, 'admin');
+  const tc = useDict(common, 'admin');
+  const lang = useLang('admin');
+  const can = useCan();
+  const settings = useSettings();
+  const products = useDb((s) => s.products);
+  const discounts = useDb((s) => s.discounts);
+  const updateOrder = useDb((s) => s.updateOrder);
+  const logAudit = useDb((s) => s.logAudit);
+  const pay = paymentOf(order);
+  const PayIcon = PAY_ICON[order.payment.method];
+  const refunded = refundedOf(order);
+  const applied = order.discounts ?? [];
+  const lineDiscounts = applied.filter((d) => d.kind !== 'shipping');
+  const shipDiscount = applied.find((d) => d.kind === 'shipping');
+  const shipBefore = order.shippingBeforeDiscount ?? order.shipping;
+  const paidAmount = pay === 'paid' || pay === 'partially_refunded' || pay === 'refunded' ? order.total : 0;
+  const itemCount = to(pluralKey('items', order.items.length, lang), { n: order.items.length });
+
+  // cost & margin — internal, permission "viewCost"
+  const cost = useMemo(() => {
+    let sum = 0;
+    for (const l of order.items) {
+      const p = products.find((x) => x.id === l.productId);
+      if (!p?.cost) return null;
+      sum += p.cost * (l.unit === 'm2' && l.packSize ? l.qty * l.packSize : l.qty);
+    }
+    return round2(sum);
+  }, [order.items, products]);
+  const goodsNet = round2(order.items.reduce((s, _, i) => s + orderLineNet(order, i), 0));
+  const showCost = can('products', 'viewCost') && cost != null && order.status !== 'cancelled';
+
+  const markPaid = () => {
+    updateOrder(order.id, { payment: { ...order.payment, status: 'paid', failed: false }, timeline: [...order.timeline, { at: new Date().toISOString(), status: 'payment', by: 'admin' }] });
+    logAudit({ action: 'status', object: 'order', objectId: order.id, detail: `${order.number}: payment → paid` });
+    toast.success(t('markedPaid'));
+  };
+
+  const canMarkPaid = (pay === 'pending' || pay === 'authorized' || pay === 'failed') && order.status !== 'cancelled' && can('orders', 'edit');
+
+  return (
+    <Card
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          {t('payment')}
+          <PayBadge state={pay} />
+        </span>
+      }
+      actions={
+        <span className="hidden items-center gap-1.5 text-[12.5px] text-muted sm:inline-flex">
+          <PayIcon className="h-4 w-4" />
+          {tc(`pay_${order.payment.method}`)}
+        </span>
+      }
+    >
+      <dl>
+        <SumRow label={t('subtotal')} sub={itemCount} value={money(order.subtotal, lang)} />
+        {order.installationTotal > 0 && <SumRow label={tc('installation')} value={money(order.installationTotal, lang)} />}
+        {lineDiscounts.length > 0
+          ? lineDiscounts.map((d) => (
+              <SumRow
+                key={d.id}
+                label={
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    {tc('discount')} · {discountName(d.id, d.title, discounts, lang)}
+                    {d.code && <CodeChip>{d.code}</CodeChip>}
+                  </span>
+                }
+                sub={`${to(`kind_${d.kind}`)} · ${d.code ? to('code') : to('auto')}`}
+                value={`−${money(d.amount, lang)}`}
+              />
+            ))
+          : order.discount > 0 && <SumRow label={order.coupon?.code ? <span className="inline-flex items-center gap-1.5">{tc('discount')} <CodeChip>{order.coupon.code}</CodeChip></span> : tc('discount')} value={`−${money(order.discount, lang)}`} />}
+        <SumRow
+          label={t('shippingRow', { method: tc(`delivery_${order.delivery.method}`) })}
+          sub={shipDiscount ? t('freeBy', { name: discountName(shipDiscount.id, shipDiscount.title, discounts, lang) }) : order.shipping === 0 && order.installationTotal > 0 && order.delivery.method !== 'pickup' ? t('freeInstall') : undefined}
+          value={
+            shipDiscount && shipBefore > order.shipping ? (
+              <span>
+                <span className="mr-1.5 text-muted line-through">{money(shipBefore, lang)}</span>
+                {order.shipping > 0 ? money(order.shipping, lang) : tc('free')}
+              </span>
+            ) : order.shipping > 0 ? (
+              money(order.shipping, lang)
+            ) : (
+              tc('free')
+            )
+          }
+        />
+        <div className="my-1.5 border-t border-line/70" />
+        <SumRow strong label={t('total')} sub={t('vat', { rate: settings.vatRate }) + ` · ${money(order.vat, lang)}`} value={<span className={cn('text-[16px]', order.status === 'cancelled' && 'text-muted line-through')}>{money(order.total, lang)}</span>} />
+      </dl>
+
+      <div className="mt-3 rounded-lg bg-canvas/70 px-3.5 py-2">
+        <SumRow label={paidAmount > 0 ? t('paidByCustomer') : t('due')} value={money(paidAmount > 0 ? paidAmount : order.total, lang)} />
+        {(order.refunds ?? []).map((r) => (
+          <SumRow key={r.id} muted label={t('refundedRow', { date: date(r.at, lang, { day: 'numeric', month: 'short' }) })} sub={r.note} value={`−${money(r.amount, lang)}`} />
+        ))}
+        {!order.refunds?.length && refunded > 0 && <SumRow muted label={to('pay_refunded')} value={`−${money(refunded, lang)}`} />}
+        {refunded > 0 && <SumRow strong label={t('net')} value={money(round2(paidAmount - refunded), lang)} />}
+      </div>
+
+      {showCost && (
+        <div className="mt-3 rounded-lg border border-dashed border-line px-3.5 py-1.5" title={t('costHint')}>
+          <SumRow label={<span className="inline-flex items-center gap-1.5"><Lock className="h-3.5 w-3.5" /> {t('cost')}</span>} value={money(cost!, lang)} />
+          <SumRow label={t('margin')} value={`${money(round2(goodsNet - cost!), lang)} · ${goodsNet > 0 ? Math.round(((goodsNet - cost!) / goodsNet) * 100) : 0}%`} />
+        </div>
+      )}
+
+      {(canMarkPaid || refundable) && (
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          {canMarkPaid && (
+            <Button variant="outline" size="sm" shape="rounded" icon={<CheckCircle2 className="h-4 w-4" />} onClick={markPaid}>
+              {t('markPaid')}
+            </Button>
+          )}
+          {refundable && (
+            <Tip tip={!can('orders', 'refund') && to('noPermission')}>
+              <Button variant="outline" size="sm" shape="rounded" icon={<RotateCcw className="h-4 w-4" />} onClick={onRefund} disabled={!can('orders', 'refund')}>
+                {t('refund')}
+              </Button>
+            </Tip>
+          )}
+        </div>
+      )}
+
+      <div className="-mx-5 mt-5 border-t border-line/70 px-5 pt-4">
+        <h3 className="mb-3 text-[13.5px] font-semibold text-ink">{t('history')}</h3>
+        <OrderTimeline order={order} />
+      </div>
+    </Card>
+  );
+}
+
+/* ================================================================== */
+/* Right column                                                        */
+/* ================================================================== */
+function CustomerCard({ order, t }: { order: Order; t: Dict }) {
+  const to = useDict(od, 'admin');
+  const orders = useDb((s) => s.orders);
+  const can = useCan();
+  const c = order.customer;
+  const count = useMemo(() => {
+    const key = customerKeyOf(order);
+    return orders.filter((o) => customerKeyOf(o) === key).length;
+  }, [orders, order]);
+  const lang = useLang('admin');
+  return (
+    <Card title={t('customer')}>
+      <div className="space-y-3 text-[13.5px]">
+        <div>
+          {can('customers') ? (
+            <Link to={customerLink(order)} className="font-semibold text-ink hover:underline">
+              {customerName(order)}
+            </Link>
+          ) : (
+            <span className="font-semibold text-ink">{customerName(order)}</span>
+          )}
+          <Link to={`/admin/narudzbe?q=${encodeURIComponent(c.email || c.phone)}`} className="block text-[12.5px] text-muted hover:text-ink hover:underline">
+            {to(pluralKey('orders', count, lang), { n: count })}
           </Link>
+        </div>
+        <ul className="space-y-1.5">
+          <li className="flex items-center gap-2 text-ink-soft">
+            <Mail className="h-3.5 w-3.5 shrink-0 text-muted" />
+            {c.email ? (
+              <a href={`mailto:${c.email}?subject=${encodeURIComponent(`#${order.number}`)}`} className="truncate hover:text-ink hover:underline">
+                {c.email}
+              </a>
+            ) : (
+              <span className="text-muted">{t('noEmail')}</span>
+            )}
+          </li>
+          {c.phone && (
+            <li className="flex items-center gap-2 text-ink-soft">
+              <Phone className="h-3.5 w-3.5 shrink-0 text-muted" />
+              <a href={`tel:${c.phone.replace(/\s+/g, '')}`} className="hover:text-ink hover:underline">
+                {c.phone}
+              </a>
+            </li>
+          )}
+        </ul>
+        {(c.company || c.pib) && (
+          <div className="border-t border-line/70 pt-3">
+            {c.company && <p className="font-medium text-ink">{c.company}</p>}
+            {c.pib && (
+              <p className="text-[12.5px] text-muted">
+                {t('pib')}: {c.pib}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function DeliveryCard({ order, t }: { order: Order; t: Dict }) {
+  const to = useDict(od, 'admin');
+  const tc = useDict(common, 'admin');
+  const lang = useLang('admin');
+  const settings = useSettings();
+  const c = order.customer;
+  const pickup = order.delivery.method === 'pickup';
+  const zone = pickup ? null : zoneForCity(settings, c.city);
+  const f = order.fulfillment;
+  return (
+    <Card title={t('delivery')}>
+      <div className="space-y-3 text-[13.5px]">
+        <p className="flex items-center gap-2 font-medium text-ink">
+          {pickup ? <Store className="h-4 w-4 text-muted" /> : <Truck className="h-4 w-4 text-muted" />}
+          {tc(`delivery_${order.delivery.method}`)}
+        </p>
+        {pickup ? (
+          <p className="text-ink-soft">{t('pickupAt', { addr: settings.pickupAddress })}</p>
+        ) : (
+          <div className="text-ink-soft">
+            <p>{customerName(order)}</p>
+            <p>{c.address}</p>
+            <p>
+              {c.city}, {to('country')}
+            </p>
+            <a href={mapsUrl(c.address, c.city)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[12.5px] font-semibold text-ink hover:underline">
+              <MapPin className="h-3.5 w-3.5" /> {t('openMap')} <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        )}
+        {zone && <p className="text-[12.5px] text-muted">{t('zone', { zone: zone.name, days: zone.days })}</p>}
+        {order.delivery.date && (
+          <p className="inline-flex items-center gap-1.5 text-[12.5px] text-ink-soft">
+            <CalendarClock className="h-3.5 w-3.5" />
+            {t('deliveryDate', { date: date(order.delivery.date, lang, { weekday: 'short', day: 'numeric', month: 'short' }) })}
+          </p>
+        )}
+        <div className="border-t border-line/70 pt-3 text-[12.5px]">
+          {f?.tracking ? (
+            <p className="text-ink-soft">
+              {f.carrier && <span className="font-medium text-ink">{isCarrierKey(f.carrier) ? to(`carrier_${f.carrier}`) : f.carrier} · </span>}
+              {t('trackingNo', { n: f.tracking })}
+            </p>
+          ) : f?.carrier ? (
+            <p className="text-ink-soft">{isCarrierKey(f.carrier) ? to(`carrier_${f.carrier}`) : f.carrier}</p>
+          ) : (
+            <p className="text-muted">{t('trackingLater')}</p>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function NotesCard({ order, t }: { order: Order; t: Dict }) {
+  const can = useCan();
+  const updateOrder = useDb((s) => s.updateOrder);
+  const editable = can('orders', 'edit');
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(order.internalNote ?? '');
+  const [tag, setTag] = useState('');
+  const tags = order.tags ?? [];
+
+  useEffect(() => setDraft(order.internalNote ?? ''), [order.internalNote]);
+
+  const saveNote = () => {
+    updateOrder(order.id, { internalNote: draft.trim() || undefined });
+    setEditing(false);
+    toast.success(t('noteSaved'));
+  };
+  const addTag = () => {
+    const v = tag.trim().toLowerCase();
+    if (!v || tags.includes(v)) return setTag('');
+    updateOrder(order.id, { tags: [...tags, v] });
+    setTag('');
+  };
+
+  return (
+    <Card
+      title={t('notes')}
+      actions={
+        editable && !editing ? (
+          <button type="button" onClick={() => setEditing(true)} className="text-[12.5px] font-semibold text-ink-soft hover:text-ink hover:underline">
+            {order.internalNote ? t('editNote') : <span className="inline-flex items-center gap-1"><Plus className="h-3.5 w-3.5" />{t('internalNote')}</span>}
+          </button>
         ) : undefined
       }
     >
-      <div className="flex items-center gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink text-sm font-bold text-paper">{initials(name)}</span>
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-bold text-ink">{name}</p>
-          <p className="text-xs text-muted">{history.index > 1 ? t('ordersCount', { n: history.index }) : t('firstOrder')}</p>
+      <div className="space-y-3 text-[13.5px]">
+        {order.customer.note && (
+          <div>
+            <Eyebrow>{t('customerNote')}</Eyebrow>
+            <p className="mt-1 whitespace-pre-line text-ink">{order.customer.note}</p>
+          </div>
+        )}
+        {editing ? (
+          <div>
+            <Eyebrow>{t('internalNote')}</Eyebrow>
+            <textarea
+              autoFocus
+              rows={3}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              className="mt-1 w-full resize-y rounded-lg border border-line bg-white px-3 py-2 text-[13.5px] leading-relaxed outline-none focus:border-ink/40 focus:ring-4 focus:ring-ink/5"
+            />
+            <div className="mt-2 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="xs"
+                shape="rounded"
+                onClick={() => {
+                  setEditing(false);
+                  setDraft(order.internalNote ?? '');
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+              <Button size="xs" shape="rounded" onClick={saveNote}>
+                {t('save')}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          order.internalNote && (
+            <div>
+              <Eyebrow>{t('internalNote')}</Eyebrow>
+              <p className="mt-1 whitespace-pre-line text-ink">{order.internalNote}</p>
+            </div>
+          )
+        )}
+        {!order.customer.note && !order.internalNote && !editing && <p className="text-muted">{t('noNotes')}</p>}
+
+        <div className="border-t border-line/70 pt-3">
+          <Eyebrow>{t('tags')}</Eyebrow>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {tags.map((tg) => (
+              <span key={tg} className="inline-flex h-6 items-center gap-1 rounded-md bg-[#EBEBEB] pl-2 pr-1 text-[12px] font-medium text-ink">
+                {tg}
+                {editable && (
+                  <button type="button" aria-label={`× ${tg}`} onClick={() => updateOrder(order.id, { tags: tags.filter((x) => x !== tg) })} className="grid h-4 w-4 place-items-center rounded hover:bg-black/10">
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </span>
+            ))}
+            {editable && (
+              <input
+                value={tag}
+                onChange={(e) => setTag(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addTag();
+                  }
+                }}
+                onBlur={addTag}
+                placeholder={t('addTag')}
+                className="h-6 min-w-[110px] flex-1 rounded-md border border-dashed border-line bg-transparent px-2 text-[12px] outline-none focus:border-ink/40"
+              />
+            )}
+          </div>
         </div>
       </div>
-      <ul className="mt-4 space-y-2.5 text-sm">
-        <ContactRow icon={<Phone className="h-4 w-4" />}>
-          <a href={`tel:${c.phone.replace(/\s+/g, '')}`} className="font-medium text-ink hover:text-brand-700 hover:underline">
-            {c.phone}
-          </a>
-        </ContactRow>
-        <ContactRow icon={<Mail className="h-4 w-4" />}>
-          <a href={`mailto:${c.email}?subject=${encodeURIComponent(`SELCA ${order.number}`)}`} className="break-all font-medium text-ink hover:text-brand-700 hover:underline">
-            {c.email}
-          </a>
-        </ContactRow>
-        <ContactRow icon={<MapPin className="h-4 w-4" />}>
-          <span className="block font-medium text-ink">{c.address}</span>
-          <span className="block text-muted">{c.city}, {t('country')}</span>
-          <a href={mapsUrl(c.address, c.city)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[13px] font-semibold text-brand-700 hover:underline">
-            {t('openMap')} <ExternalLink className="h-3 w-3" />
-          </a>
-        </ContactRow>
-        {(c.company || c.pib) && (
-          <ContactRow icon={<Building2 className="h-4 w-4" />}>
-            {c.company && <span className="block font-medium text-ink">{c.company}</span>}
-            {c.pib && (
-              <span className="block text-muted">
-                {t('pib')}: <span className="font-semibold text-ink-soft">{c.pib}</span>
+    </Card>
+  );
+}
+
+function DiscountCard({ order, t }: { order: Order; t: Dict }) {
+  const to = useDict(od, 'admin');
+  const lang = useLang('admin');
+  const can = useCan();
+  const discounts = useDb((s) => s.discounts);
+  const applied = order.discounts ?? [];
+  const legacy = !applied.length && order.coupon?.code ? order.coupon : null;
+  return (
+    <Card title={t('discount')}>
+      {applied.length === 0 && !legacy ? (
+        <p className="text-[13.5px] text-muted">{t('noDiscount')}</p>
+      ) : (
+        <ul className="space-y-2.5 text-[13.5px]">
+          {legacy && (
+            <li className="flex items-center justify-between gap-3">
+              <span className="inline-flex items-center gap-1.5 text-ink-soft">
+                {to('code')} <CodeChip>{legacy.code}</CodeChip>
               </span>
-            )}
-          </ContactRow>
-        )}
-      </ul>
-      {c.note && (
-        <div className="mt-4 rounded-xl bg-sand/60 px-4 py-3">
-          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
-            <MessageSquareQuote className="h-3.5 w-3.5" /> {t('customerNote')}
-          </p>
-          <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-ink">{c.note}</p>
-        </div>
+              <span className="tabular-nums text-ink">−{money(legacy.discount, lang)}</span>
+            </li>
+          )}
+          {applied.map((d) => {
+            const exists = discounts.some((x) => x.id === d.id);
+            const name = discountName(d.id, d.title, discounts, lang);
+            return (
+              <li key={d.id} className="flex items-start justify-between gap-3">
+                <span className="min-w-0">
+                  <span className="flex flex-wrap items-center gap-1.5 text-ink-soft">
+                    {d.code ? (
+                      <>
+                        {to('code')} <CodeChip>{d.code}</CodeChip>
+                      </>
+                    ) : (
+                      to('auto')
+                    )}
+                  </span>
+                  {exists && can('discounts') ? (
+                    <Link to={`/admin/popusti/${d.id}`} className="mt-0.5 block truncate text-[12.5px] text-muted hover:text-ink hover:underline">
+                      {name}
+                    </Link>
+                  ) : (
+                    <span className="mt-0.5 block truncate text-[12.5px] text-muted">{name}</span>
+                  )}
+                </span>
+                <span className="shrink-0 tabular-nums text-ink">−{money(d.amount, lang)}</span>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </Card>
   );
 }
 
-function ContactRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+function ReturnsCard({ order, t }: { order: Order; t: Dict }) {
+  const lang = useLang('admin');
+  const can = useCan();
+  const all = useDb((s) => s.returns);
+  const returns = useMemo(() => all.filter((r) => r.orderId === order.id), [all, order.id]);
+  if (!returns.length || !can('returns')) return null;
   return (
-    <li className="flex gap-3">
-      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-canvas text-ink-soft">{icon}</span>
-      <div className="min-w-0 pt-1 leading-snug">{children}</div>
-    </li>
-  );
-}
-
-function InfoBlock({ icon, label, children }: { icon: ReactNode; label: ReactNode; children: ReactNode }) {
-  return (
-    <div className="flex gap-3">
-      <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700">{icon}</span>
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{label}</p>
-        <div className="mt-1 text-sm">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: ReactNode; value: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-4 py-1.5 text-sm">
-      <dt className="text-muted">{label}</dt>
-      <dd className="font-medium tabular-nums text-ink">{value}</dd>
-    </div>
+    <Card title={t('returns')}>
+      <ul className="space-y-2.5 text-[13.5px]">
+        {returns.map((r) => (
+          <li key={r.id}>
+            <Link to={`/admin/povrati?id=${r.id}`} className="flex items-center justify-between gap-3 rounded-lg px-1 py-0.5 hover:bg-canvas">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="font-semibold text-ink">{r.number}</span>
+                <ReturnBadge status={r.status} />
+              </span>
+              <span className="shrink-0 tabular-nums text-ink-soft">{money(r.refundAmount, lang)}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }

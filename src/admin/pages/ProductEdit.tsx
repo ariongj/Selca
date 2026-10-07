@@ -1,29 +1,54 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useBlocker, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
-import { AlertTriangle, Check, ExternalLink, Eye, EyeOff, Infinity as InfinityIcon, Keyboard, PackageSearch, Percent, Sparkles, Star, Tag, Trash2, Wrench } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, Copy, ExternalLink, Keyboard, Lock, PackageSearch, Trash2 } from 'lucide-react';
 import { Button, ButtonLink, buttonClass } from '@/components/ui/Button';
 import { FieldError } from '@/components/ui/Field';
-import { Badge, EmptyState } from '@/components/ui/misc';
+import { EmptyState } from '@/components/ui/misc';
 import { Card, PageHeader, SaveBar, confirmDialog } from '@/admin/components/kit';
 import { L10nInput } from '@/admin/components/L10nInput';
 import { GalleryField } from '@/admin/components/media';
 import { pd } from '@/admin/components/products/dict';
-import { FormField, NumInput, SelectInput, TextInput, ToggleRow, missingCounts } from '@/admin/components/products/parts';
-import { OptionsEditor } from '@/admin/components/products/OptionsEditor';
+import { RowMenu, StatusLabel, missingCounts, type MenuItem } from '@/admin/components/products/parts';
+import { PricingCard } from '@/admin/components/products/PricingCard';
+import { VariantsCard } from '@/admin/components/products/VariantsCard';
 import { SpecsEditor } from '@/admin/components/products/SpecsEditor';
 import { SeoCard } from '@/admin/components/products/SeoCard';
+import { DisplayCard, InstallCard, OrganizationCard, PublishingCard, ShippingCard, StatusCard, TemplateCard } from '@/admin/components/products/EditorCards';
+import { DeleteDialog } from '@/admin/components/products/DeleteDialog';
+import {
+  MAX_TRACKED, applyPricing, defaultVariants, distinct, isTracked, missingForPublish, pricingOf, skusOf, syncVariants, uniqueSlug, variantSku, variantsOf,
+  type ProductX, type Variant,
+} from '@/admin/components/products/model';
 import { ProductCard } from '@/site/components/ProductCard';
 import { useDict, useL, useLang } from '@/i18n';
-import { common } from '@/i18n/common';
 import { useDb } from '@/store/db';
-import { useCategories } from '@/store/hooks';
-import { discountPct, isOnSale } from '@/lib/pricing';
-import { date, money, num, perUnit, timeAgo, unitLabel } from '@/lib/format';
-import type { Badge as BadgeT, Lang, Product, Unit } from '@/lib/types';
+import { useCan, useCategories } from '@/store/hooks';
+import { inCollection } from '@/lib/collections';
+import { UNTRACKED_STOCK } from '@/lib/inventory';
+import { brandVars } from '@/lib/color';
+import { date, num, timeAgo } from '@/lib/format';
+import type { Collection, ProductOption, ProductStatus } from '@/lib/types';
 import { cn, round2, slugify, uid } from '@/lib/utils';
+import { href } from '@/lib/paths';
 
-const blankProduct = (): Product => ({
+/* ------------------------------------------------------------------ */
+/* Form model                                                          */
+/* ------------------------------------------------------------------ */
+interface Form {
+  p: ProductX;
+  /** Çmimi — what the customer pays */
+  price: number | null;
+  /** Çmimi referues — compare-at (empty ≠ 0) */
+  compareAt: number | null;
+  variants: Variant[];
+  /** manual collections that list the product */
+  manualCols: string[];
+  /** keep the old URL working after a slug change */
+  redirect: boolean;
+}
+
+const blankProduct = (): ProductX => ({
   id: '',
   slug: '',
   sku: '',
@@ -41,27 +66,66 @@ const blankProduct = (): Product => ({
   installation: { available: false, price: 0 },
   badges: [],
   featured: false,
-  status: 'active',
+  status: 'draft',
   quoteOnly: false,
   leadDays: 7,
   warrantyYears: 2,
   seo: {},
   createdAt: '',
   sold: 0,
+  tags: [],
+  channels: ['online', 'pos'],
+  template: 'standard',
+  incoming: 0,
+  unavailable: 0,
+  shipping: { physical: true },
 });
 
-type Errors = Partial<Record<'name' | 'price' | 'category', string>>;
-const BADGES: BadgeT[] = ['new', 'sale', 'bestseller', 'premium'];
-const UNITS: Unit[] = ['kom', 'm2', 'm', 'set'];
+function formFrom(source: ProductX | undefined, collections: Collection[]): Form {
+  const raw = source ? structuredClone(source) : blankProduct();
+  const p: ProductX = {
+    ...raw,
+    tags: raw.tags ?? [],
+    channels: raw.channels ?? ['online'],
+    template: raw.template ?? (raw.quoteOnly ? 'quote' : 'standard'),
+    shipping: raw.shipping ?? { physical: true },
+    installation: raw.installation ?? { available: false, price: 0 },
+    seo: raw.seo ?? {},
+  };
+  const { price, compareAt } = pricingOf(p);
+  return {
+    p,
+    price,
+    compareAt,
+    variants: variantsOf(p),
+    manualCols: source ? collections.filter((c) => c.kind === 'manual' && c.productIds.includes(source.id)).map((c) => c.id) : [],
+    redirect: true,
+  };
+}
+
+/** Form → the product as it would be stored (pricing, stock = sum of enabled variants, template ↔ quoteOnly). */
+function compose(f: Form): ProductX {
+  const tracked = isTracked(f.p);
+  const stock = !tracked ? UNTRACKED_STOCK : f.variants.length ? f.variants.filter((v) => v.enabled).reduce((s, v) => s + v.stock, 0) : f.p.stock;
+  return {
+    ...f.p,
+    ...applyPricing(f.price, f.compareAt),
+    stock: Math.min(tracked ? MAX_TRACKED : UNTRACKED_STOCK, stock),
+    quoteOnly: f.p.template === 'quote',
+    variants: f.variants.length ? f.variants : undefined,
+  };
+}
+
+type Errors = Partial<Record<'name' | 'price' | 'category' | 'image' | 'sku' | 'variants', string>>;
 
 export default function ProductEdit() {
   const { id } = useParams();
-  const product = useDb((s) => (id ? s.products.find((p) => p.id === id) : undefined));
+  const product = useDb((s) => (id ? s.products.find((p) => p.id === id) : undefined)) as ProductX | undefined;
   const t = useDict(pd, 'admin');
   if (id && !product) {
     return (
       <div>
-        <PageHeader back="/admin/proizvodi" title={t('notFound')} />
+        <PageHeader back="/admin/proizvodi" breadcrumbs={[{ label: t('title'), to: '/admin/proizvodi' }, t('notFound')]} title={t('notFound')} />
         <Card>
           <EmptyState
             icon={<PackageSearch className="h-6 w-6" />}
@@ -77,90 +141,156 @@ export default function ProductEdit() {
       </div>
     );
   }
-  // Keyed so a freshly created product (new → /:id) remounts with its stored data.
+  // Keyed so a freshly created product (novi → /:id) remounts with its stored data.
   return <Editor key={id ?? 'new'} source={product} />;
 }
 
-function Editor({ source }: { source?: Product }) {
+function Editor({ source }: { source?: ProductX }) {
   const t = useDict(pd, 'admin');
-  const tc = useDict(common, 'admin');
   const l = useL('admin');
   const lang = useLang('admin');
   const navigate = useNavigate();
+  const can = useCan();
   const categories = useCategories();
-  const allProducts = useDb((s) => s.products);
+  const allProducts = useDb((s) => s.products) as ProductX[];
+  const collections = useDb((s) => s.collections);
+  const settings = useDb((s) => s.settings);
   const upsertProduct = useDb((s) => s.upsertProduct);
-  const deleteProduct = useDb((s) => s.deleteProduct);
+  const duplicateProduct = useDb((s) => s.duplicateProduct);
   const isNew = !source;
 
-  const [original, setOriginal] = useState<Product>(() => (source ? structuredClone(source) : blankProduct()));
-  const [draft, setDraft] = useState<Product>(original);
-  const autoFor = (p: Product) => !p.slug || p.slug === slugify(p.name.me);
-  const [slugAuto, setSlugAuto] = useState(() => autoFor(original));
+  const canEdit = can('products', 'edit');
+  const canPublish = can('products', 'publish');
+  const canArchive = can('products', 'archive');
+  const canDelete = can('products', 'delete');
+  const canCost = can('products', 'viewCost');
+  const canCollections = can('collections', 'edit');
+
+  const [original, setOriginal] = useState<Form>(() => formFrom(source, collections));
+  const [form, setForm] = useState<Form>(original);
+  const autoFor = (p: ProductX) => !p.slug || p.slug === slugify(p.name.me);
+  const [slugAuto, setSlugAuto] = useState(() => autoFor(original.p));
   const [tried, setTried] = useState(false);
-  const lastStock = useRef(original.stock < 999 ? original.stock : 0);
+  const [deleting, setDeleting] = useState<ProductX[]>([]);
+  const lastStock = useRef(isTracked(original.p) ? original.p.stock : 0);
   const bypass = useRef(false);
 
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(original), [draft, original]);
-  const set = <K extends keyof Product>(k: K, v: Product[K]) => setDraft((d) => ({ ...d, [k]: v }));
+  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(original), [form, original]);
+  const setP = (patch: Partial<ProductX>) => setForm((f) => ({ ...f, p: { ...f.p, ...patch } }));
+  const composed = useMemo(() => compose(form), [form]);
+  const tracked = isTracked(form.p);
 
-  const validate = (p: Product): Errors => {
+  /* ------------------------------ derived ------------------------------ */
+  const takenSkus = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of allProducts) if (p.id !== form.p.id) for (const s of skusOf(p)) m.set(s.toUpperCase(), l(p.name));
+    return m;
+  }, [allProducts, form.p.id, l]);
+  const missing = useMemo(() => missingForPublish(composed, categories), [composed, categories]);
+  const smartMatches = useMemo(() => collections.filter((c) => c.kind === 'smart' && inCollection(c, composed)), [collections, composed]);
+  const vendors = useMemo(() => distinct(allProducts.map((p) => p.vendor)), [allProducts]);
+  const tagSuggestions = useMemo(() => distinct(allProducts.flatMap((p) => p.tags ?? [])), [allProducts]);
+  const translations = useMemo(() => {
+    const p = form.p;
+    const all = [p.name, p.short, p.description, ...p.options.flatMap((o) => [o.name, ...o.values.map((v) => v.label)]), ...p.specs.flatMap((s) => [s.label, s.value])];
+    return { total: all.filter((v) => v.me.trim() || v.sq.trim() || v.en.trim()).length, miss: missingCounts(all) };
+  }, [form.p]);
+
+  const validate = (f: Form): Errors => {
+    const p = compose(f);
     const e: Errors = {};
     if (!p.name.me.trim()) e.name = t('e_name');
-    if (!(p.price > 0)) e.price = t('e_price');
-    if (!p.categoryId || !categories.some((c) => c.id === p.categoryId)) e.category = t('e_category');
+    const own = p.sku.trim().toUpperCase();
+    if (own && takenSkus.has(own)) e.sku = t('e_skuDup', { sku: p.sku.trim(), name: takenSkus.get(own) ?? '' });
+    const vs = f.variants.map((v) => v.sku.trim().toUpperCase()).filter(Boolean);
+    if (new Set(vs).size !== vs.length || vs.some((s) => takenSkus.has(s))) e.variants = t('e_variantSkuDup');
+    if (p.status === 'active') {
+      const miss = missingForPublish(p, categories);
+      if (miss.includes('category')) e.category = t('req_category');
+      if (miss.includes('price')) e.price = t('req_price');
+      if (miss.includes('image')) e.image = t('req_image');
+    }
     return e;
   };
-  const errors: Errors = tried ? validate(draft) : {};
-
-  const uniqueSlug = (base: string, selfId: string) => {
-    let s = base;
-    let n = 2;
-    while (allProducts.some((p) => p.slug === s && p.id !== selfId)) s = `${base}-${n++}`;
-    return s;
-  };
+  const errors: Errors = tried ? validate(form) : {};
 
   /* ------------------------------ save ------------------------------ */
-  const save = () => {
+  const save = (statusOverride?: ProductStatus) => {
+    if (!canEdit) return;
     setTried(true);
-    const errs = validate(draft);
-    if (Object.keys(errs).length) {
-      toast.error(t('fixErrors'), { description: Object.values(errs).join(' ') });
-      const first = errs.name ? 'sec-basic' : errs.price ? 'sec-pricing' : 'sec-org';
-      document.getElementById(first)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const f: Form = statusOverride ? { ...form, p: { ...form.p, status: statusOverride } } : form;
+    const errs = validate(f);
+    const next0 = compose(f);
+    if (errs.name || errs.sku || errs.variants) {
+      toast.error(t('fixErrors'), { description: [errs.name, errs.sku, errs.variants].filter(Boolean).join(' ') });
+      document.getElementById(errs.name ? 'sec-title' : 'sec-variants')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
+    if (next0.status === 'active') {
+      const miss = missingForPublish(next0, categories);
+      if (miss.length) {
+        toast.error(t('publishBlocked'), {
+          description: t('publishBlockedText', { list: miss.map((r) => t(`req_${r}`)).join(', ') }),
+          action: { label: t('saveAsDraft'), onClick: () => saveRef.current('draft') },
+        });
+        const first = miss[0] === 'image' ? 'sec-media' : miss[0] === 'price' ? 'sec-price' : miss[0] === 'name' ? 'sec-title' : 'sec-org';
+        document.getElementById(first)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+      if (!canPublish && source?.status !== 'active') {
+        toast.error(t('noPermPublish'));
+        return;
+      }
+    }
     const now = new Date().toISOString();
-    const pid = draft.id || uid('p');
-    const seo = { title: draft.seo?.title?.trim() || undefined, description: draft.seo?.description?.trim() || undefined };
-    const next: Product = {
-      ...draft,
+    const pid = next0.id || uid('p');
+    const seo = { title: next0.seo?.title?.trim() || undefined, description: next0.seo?.description?.trim() || undefined };
+    const slug = uniqueSlug(slugify(next0.slug) || slugify(next0.name.me) || pid, pid, allProducts);
+    const oldSlug = source?.slug;
+    const redirects = [...(source?.redirects ?? [])];
+    if (oldSlug && oldSlug !== slug && f.redirect && !redirects.includes(oldSlug)) redirects.push(oldSlug);
+    const next: ProductX = {
+      ...next0,
       id: pid,
-      slug: uniqueSlug(slugify(draft.slug) || slugify(draft.name.me) || pid, pid),
-      sku: draft.sku.trim(),
-      salePrice: draft.salePrice && draft.salePrice > 0 ? round2(draft.salePrice) : null,
-      price: round2(draft.price),
-      packSize: draft.unit === 'm2' ? draft.packSize || 1 : undefined,
+      slug,
+      sku: next0.sku.trim(),
+      price: round2(next0.price),
+      packSize: next0.unit === 'm2' ? next0.packSize || 1 : undefined,
       seo: seo.title || seo.description ? seo : undefined,
-      createdAt: draft.createdAt || now,
-      sold: isNew ? 0 : draft.sold,
+      vendor: next0.vendor?.trim() || undefined,
+      redirects: redirects.filter((r) => r !== slug).length ? redirects.filter((r) => r !== slug) : undefined,
+      createdAt: next0.createdAt || now,
+      sold: isNew ? 0 : next0.sold,
     };
     upsertProduct(next);
-    const stored = useDb.getState().products.find((p) => p.id === pid) ?? next;
-    setOriginal(stored);
-    setDraft(stored);
+
+    // manual collections toggled in "Organizimi"
+    if (canCollections) {
+      const st = useDb.getState();
+      for (const c of st.collections) {
+        if (c.kind !== 'manual') continue;
+        const want = f.manualCols.includes(c.id);
+        const has = c.productIds.includes(pid);
+        if (want !== has) st.upsert('collections', { ...c, productIds: want ? [...c.productIds, pid] : c.productIds.filter((x) => x !== pid) });
+      }
+    }
+
+    const stored = (useDb.getState().products.find((p) => p.id === pid) as ProductX | undefined) ?? next;
+    const fresh = formFrom(stored, useDb.getState().collections);
+    setOriginal(fresh);
+    setForm(fresh);
     setTried(false);
     setSlugAuto(autoFor(stored));
-    toast.success(isNew ? t('created') : t('saved'), { description: stored.name.me });
+    toast.success(isNew ? t('created') : t('saved'), { description: l(stored.name) });
     if (isNew) {
       bypass.current = true;
       navigate(`/admin/proizvodi/${pid}`, { replace: true });
     }
   };
   const discard = () => {
-    setDraft(original);
+    setForm(original);
     setTried(false);
-    setSlugAuto(autoFor(original));
+    setSlugAuto(autoFor(original.p));
   };
 
   // Ctrl/Cmd + S
@@ -193,346 +323,278 @@ function Editor({ source }: { source?: Product }) {
     return () => window.removeEventListener('beforeunload', fn);
   }, [dirty]);
 
-  const remove = async () => {
+  /* ------------------------------ handlers ------------------------------ */
+  const setOptions = (options: ProductOption[]) =>
+    setForm((f) => {
+      const usable = options.some((o) => o.values.length);
+      if (!usable) {
+        const sum = f.variants.filter((v) => v.enabled).reduce((s, v) => s + v.stock, 0);
+        return { ...f, p: { ...f.p, options, stock: isTracked(f.p) ? (f.variants.length ? sum : f.p.stock) : f.p.stock }, variants: [] };
+      }
+      const synced = f.variants.length ? syncVariants(options, f.variants, f.p.sku) : defaultVariants({ options, sku: f.p.sku, stock: f.p.stock });
+      // keep automatic SKUs in step with renamed values; hand-edited SKUs stay
+      const variants = synced.map((v) => (v.sku === variantSku(f.p.sku, f.p.options, v.values) ? { ...v, sku: variantSku(f.p.sku, options, v.values) } : v));
+      return { ...f, p: { ...f.p, options }, variants };
+    });
+  const setSku = (sku: string) =>
+    setForm((f) => ({
+      ...f,
+      p: { ...f.p, sku },
+      variants: f.variants.map((v) => (v.sku === variantSku(f.p.sku, f.p.options, v.values) ? { ...v, sku: variantSku(sku, f.p.options, v.values) } : v)),
+    }));
+  const setTracked = (on: boolean) => {
+    if (on) setP({ stock: Math.min(MAX_TRACKED, lastStock.current) });
+    else {
+      if (tracked) lastStock.current = form.p.stock;
+      setP({ stock: UNTRACKED_STOCK });
+    }
+  };
+  const duplicate = () => {
     if (!source) return;
-    if (!(await confirmDialog({ title: t('deleteTitle', { name: l(original.name) }), text: t('deleteText'), confirmLabel: t('delete'), danger: true }))) return;
-    bypass.current = true;
-    navigate('/admin/proizvodi');
-    deleteProduct(source.id);
-    toast.success(t('deleted'), { description: l(original.name) });
+    const id = duplicateProduct(source.id);
+    if (!id) return;
+    toast.success(t('duplicated'), { description: l(source.name) });
+    navigate(`/admin/proizvodi/${id}`);
   };
 
-  /* ---------------------------- derived ---------------------------- */
-  const installation = draft.installation ?? { available: false, price: 0 };
-  const mto = draft.stock >= 999;
-  const sale = isOnSale(draft);
-  const saleTooHigh = draft.salePrice != null && draft.salePrice > 0 && draft.salePrice >= draft.price && draft.price > 0;
-  const fmt = (v: number) => money(v, lang, { decimals: v % 1 !== 0 });
-  const unitSfx = draft.unit === 'kom' || draft.unit === 'set' ? '' : ` ${perUnit(draft.unit, lang)}`;
-  const translations = useMemo(() => {
-    const all = [draft.name, draft.short, draft.description, ...draft.options.flatMap((o) => [o.name, ...o.values.map((v) => v.label)]), ...draft.specs.flatMap((s) => [s.label, s.value])];
-    const total = all.filter((v) => v.me.trim() || v.sq.trim() || v.en.trim()).length;
-    const miss = missingCounts(all);
-    return { total, miss };
-  }, [draft]);
-  const preview = useMemo<Product>(() => ({ ...draft, id: draft.id || 'preview', name: draft.name.me.trim() ? draft.name : { me: t('f_name'), sq: t('f_name'), en: t('f_name') } }), [draft, t]);
-
-  const warn = (text: string) => (
-    <span className="inline-flex items-start gap-1 font-medium text-amber-700">
-      <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" /> {text}
-    </span>
-  );
-  const stockNote: ReactNode = mto
-    ? undefined
-    : draft.stock > 0 && draft.stock <= 5
-      ? warn(t('lowStockWarn'))
-      : draft.stock <= 0 && !isNew
-        ? warn(t('outOfStockWarn'))
-        : draft.unit === 'm2'
-          ? t('stockPacksH')
-          : undefined;
-
-  const toggleBadge = (b: BadgeT) => set('badges', draft.badges.includes(b) ? draft.badges.filter((x) => x !== b) : BADGES.filter((x) => x === b || draft.badges.includes(x)));
-  const setMto = (on: boolean) => {
-    if (on) {
-      if (draft.stock < 999) lastStock.current = draft.stock;
-      set('stock', 999);
-    } else set('stock', lastStock.current);
-  };
-
-  const headerDesc: ReactNode = isNew ? (
-    t('newDesc')
-  ) : (
+  /* ------------------------------ header ------------------------------ */
+  const origStatus = isNew ? null : original.p.status;
+  const menu: MenuItem[] = isNew
+    ? []
+    : [
+        { label: t('duplicate'), icon: Copy, onSelect: duplicate, disabled: !canEdit, hint: t('noPerm') },
+        origStatus === 'archived'
+          ? { label: t('restore'), icon: ArchiveRestore, onSelect: () => save('draft'), disabled: !canArchive, hint: t('noPerm') }
+          : { label: t('archive'), icon: Archive, onSelect: () => save('archived'), disabled: !canArchive, hint: t('noPerm') },
+        { label: t('delete'), icon: Trash2, onSelect: () => source && setDeleting([source]), danger: true, divider: true, disabled: !canDelete, hint: t('noPerm') },
+      ];
+  const headerDesc: ReactNode = isNew ? undefined : (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      {original.sku && <span className="rounded-md bg-white px-1.5 py-0.5 font-mono text-[12px] text-ink-soft ring-1 ring-line">{original.sku}</span>}
-      <span>{t('createdOn', { date: date(original.createdAt, lang) })}</span>
-      {original.updatedAt && (
+      {original.p.sku && <span className="rounded-md bg-white px-1.5 py-0.5 font-mono text-[12px] text-ink-soft ring-1 ring-line">{original.p.sku}</span>}
+      <span>{t('createdOn', { date: date(original.p.createdAt, lang) })}</span>
+      {original.p.updatedAt && (
         <>
-          <span className="text-line">•</span>
-          <span>{t('updatedAgo', { ago: timeAgo(original.updatedAt, lang) })}</span>
+          <span className="text-ink/20">•</span>
+          <span>{t('updatedAgo', { ago: timeAgo(original.p.updatedAt, lang) })}</span>
         </>
       )}
-      {original.sold > 0 && (
+      {original.p.sold > 0 && (
         <>
-          <span className="text-line">•</span>
-          <span>{t('soldN', { n: num(original.sold, lang) })}</span>
+          <span className="text-ink/20">•</span>
+          <span>{t('soldN', { n: num(original.p.sold, lang) })}</span>
         </>
       )}
     </span>
   );
+  const preview = useMemo<ProductX>(() => ({ ...composed, id: composed.id || 'preview', name: composed.name.me.trim() ? composed.name : { me: t('f_title'), sq: t('f_title'), en: t('f_title') } }), [composed, t]);
+  const slugChanged = !isNew && !!source?.slug && slugify(form.p.slug) !== source.slug && !!slugify(form.p.slug);
 
   return (
     <div className="pb-28">
       <PageHeader
         back="/admin/proizvodi"
-        title={<span className="line-clamp-2">{l(draft.name) || t('newTitle')}</span>}
-        badge={
-          !isNew && (
-            <Badge tone={original.status === 'active' ? 'green' : 'gray'} dot>
-              {original.status === 'active' ? t('active') : t('draft')}
-            </Badge>
-          )
-        }
+        breadcrumbs={[{ label: t('title'), to: '/admin/proizvodi' }, l(original.p.name) || t('newTitle')]}
+        title={<span className="line-clamp-2">{l(form.p.name) || t('newTitle')}</span>}
+        badge={origStatus && <StatusLabel status={origStatus} />}
         description={headerDesc}
         actions={
           <>
-            {!isNew && (
-              <>
-                <a href={`/proizvod/${original.slug}`} target="_blank" rel="noreferrer" className={buttonClass({ variant: 'outline', size: 'sm', shape: 'rounded' })}>
-                  <ExternalLink className="h-4 w-4" /> {t('viewOnSite')}
-                </a>
-                <Button variant="outline" size="sm" shape="rounded" onClick={remove} icon={<Trash2 className="h-4 w-4" />} className="text-red-600 hover:border-red-300! hover:bg-red-50!">
-                  <span className="max-sm:sr-only">{t('delete')}</span>
-                </Button>
-              </>
+            {!isNew && origStatus === 'active' && (
+              <a href={href(`/proizvod/${original.p.slug}`)} target="_blank" rel="noreferrer" className={buttonClass({ variant: 'outline', size: 'sm', shape: 'rounded' })}>
+                <ExternalLink className="h-4 w-4" /> <span className="max-sm:sr-only">{t('viewOnSite')}</span>
+              </a>
             )}
-            <Button size="sm" shape="rounded" onClick={save} disabled={!dirty && !isNew} icon={<Check className="h-4 w-4" />}>
-              {t('save')}
-            </Button>
+            {menu.length > 0 && (
+              <span className="rounded-lg border border-ink/15 bg-white">
+                <RowMenu items={menu} label={t('moreActions')} />
+              </span>
+            )}
+            {canEdit ? (
+              <Button size="sm" shape="rounded" onClick={() => save()} disabled={!dirty && !isNew} icon={<Check className="h-4 w-4" />}>
+                {t('save')}
+              </Button>
+            ) : (
+              <span title={t('readOnly')} className="inline-flex cursor-not-allowed">
+                <Button size="sm" shape="rounded" disabled icon={<Lock className="h-4 w-4" />}>
+                  {t('save')}
+                </Button>
+              </span>
+            )}
           </>
         }
       />
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_360px]">
-        {/* ---------------------------- main ---------------------------- */}
-        <div className="min-w-0 space-y-6">
-          <div id="sec-basic" className="scroll-mt-24">
-            <Card title={t('c_basic')} description={t('c_basic_d')}>
-              <div className="space-y-5">
-                <div>
-                  <L10nInput
-                    label={t('f_name')}
-                    required
-                    value={draft.name}
-                    onChange={(name) => setDraft((d) => ({ ...d, name, slug: slugAuto ? slugify(name.me) : d.slug }))}
-                    className={cn(errors.name && '[&_input]:border-red-500 [&_input]:ring-4 [&_input]:ring-red-500/10')}
-                  />
-                  <FieldError>{errors.name}</FieldError>
-                </div>
-                <L10nInput label={t('f_short')} multiline rows={2} value={draft.short} onChange={(v) => set('short', v)} hint={t('f_short_h')} />
-                <L10nInput label={t('f_desc')} multiline rows={8} value={draft.description} onChange={(v) => set('description', v)} hint={t('f_desc_h')} />
-              </div>
-            </Card>
-          </div>
-
-          <Card title={t('c_images')} description={t('c_images_d')} actions={draft.images.length > 0 && <Badge tone="gray">{draft.images.length}</Badge>}>
-            <GalleryField value={draft.images} onChange={(v) => set('images', v)} />
-          </Card>
-
-          <div id="sec-pricing" className="scroll-mt-24">
-            <Card title={t('c_pricing')} description={t('c_pricing_d')}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField label={t('f_price')} required error={errors.price}>
-                  <NumInput money zeroAsEmpty value={draft.price} onChange={(v) => set('price', v ?? 0)} suffix={`€${unitSfx}`} placeholder={lang === 'en' ? '0.00' : '0,00'} invalid={!!errors.price} className="font-semibold" />
-                </FormField>
-                <FormField label={t('f_sale')} hint={t('f_sale_h')}>
-                  <NumInput money value={draft.salePrice ?? null} onChange={(v) => set('salePrice', v)} suffix={`€${unitSfx}`} placeholder="—" invalid={saleTooHigh} />
-                </FormField>
-                <FormField label={t('f_unit')}>
-                  <SelectInput value={draft.unit} onChange={(e) => setDraft((d) => ({ ...d, unit: e.target.value as Unit, packSize: e.target.value === 'm2' ? d.packSize || 1 : d.packSize }))}>
-                    {UNITS.map((u) => (
-                      <option key={u} value={u}>
-                        {t(`unit_${u}`)}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-                {draft.unit === 'm2' && (
-                  <FormField label={t('f_pack')} hint={t('f_pack_h')}>
-                    <NumInput value={draft.packSize ?? null} onChange={(v) => set('packSize', v ?? undefined)} suffix="m²" placeholder={lang === 'en' ? '2.22' : '2,22'} />
-                  </FormField>
-                )}
-              </div>
-              {/* live price summary */}
-              <div
-                className={cn(
-                  'mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl px-4 py-3 text-[13px]',
-                  saleTooHigh ? 'bg-amber-50 text-amber-900 ring-1 ring-inset ring-amber-600/20' : sale ? 'bg-emerald-50 text-emerald-900 ring-1 ring-inset ring-emerald-600/15' : 'bg-canvas/70 text-muted',
-                )}
-              >
-                <span className="flex items-center gap-2 font-semibold">
-                  {saleTooHigh ? <AlertTriangle className="h-4 w-4" /> : sale ? <Percent className="h-4 w-4" /> : <Tag className="h-4 w-4" />}
-                  {saleTooHigh
-                    ? t('saleTooHigh')
-                    : sale
-                      ? t('discountHint', { pct: discountPct(draft), amount: fmt(round2(draft.price - (draft.salePrice as number))) })
-                      : t('regularOnly')}
-                </span>
-                {draft.unit === 'm2' && (draft.packSize ?? 0) > 0 && draft.price > 0 && (
-                  <span className="text-ink-soft sm:ml-auto">
-                    {t('packHint', { size: num(draft.packSize as number, lang), price: fmt(round2((sale ? (draft.salePrice as number) : draft.price) * (draft.packSize as number))) })}
-                  </span>
-                )}
-              </div>
-            </Card>
-          </div>
-
-          <OptionsEditor value={draft.options} onChange={(v) => set('options', v)} />
-          <SpecsEditor value={draft.specs} onChange={(v) => set('specs', v)} />
-          <SeoCard
-            draft={draft}
-            slugAuto={slugAuto}
-            onSlug={(s) => {
-              setSlugAuto(false);
-              set('slug', s.toLowerCase().replace(/\s+/g, '-'));
-            }}
-            onResetSlug={() => {
-              setSlugAuto(true);
-              set('slug', slugify(draft.name.me));
-            }}
-            onSeo={(seo) => set('seo', seo)}
-          />
+      {(!canEdit || origStatus === 'archived') && (
+        <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-line bg-white px-4 py-3 text-[13px] text-ink-soft">
+          {!canEdit ? <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted" /> : <Archive className="mt-0.5 h-4 w-4 shrink-0 text-muted" />}
+          <span>{!canEdit ? t('readOnly') : t('archivedBanner')}</span>
         </div>
+      )}
 
-        {/* --------------------------- sidebar --------------------------- */}
-        <div className="flex min-w-0 flex-col gap-6 self-stretch">
-          <Card title={t('c_status')}>
-            <div className="space-y-4">
-              <ToggleRow
-                label={t('f_active')}
-                hint={draft.status === 'active' ? t('statusActiveH') : t('statusDraftH')}
-                checked={draft.status === 'active'}
-                onChange={(v) => set('status', v ? 'active' : 'draft')}
-                icon={draft.status === 'active' ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              />
-              <ToggleRow label={t('f_featured')} hint={t('f_featured_h')} checked={draft.featured} onChange={(v) => set('featured', v)} icon={<Star className={cn('h-4 w-4', draft.featured && 'fill-current')} />} />
-              {translations.total > 0 && (
-                <div className="flex items-center justify-between gap-3 border-t border-line/70 pt-4">
-                  <span className="text-[13px] font-semibold text-ink-soft">{t('translations')}</span>
-                  <div className="flex gap-1.5">
-                    {(['me', 'sq', 'en'] as Lang[]).map((lg) => {
-                      const miss = translations.miss[lg];
-                      return (
-                        <span
-                          key={lg}
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums',
-                            miss ? 'bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20' : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/15',
-                          )}
-                        >
-                          {lg.toUpperCase()}
-                          {miss ? <span className="font-semibold">{translations.total - miss}/{translations.total}</span> : <Check className="h-3 w-3" strokeWidth={3} />}
-                        </span>
-                      );
-                    })}
+      <fieldset disabled={!canEdit} className="contents">
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_344px]">
+          {/* ---------------------------- main ---------------------------- */}
+          <div className="min-w-0 space-y-5">
+            <div id="sec-title" className="scroll-mt-24">
+              <Card title={t('c_title')}>
+                <div className="space-y-5">
+                  <div>
+                    <L10nInput
+                      label={t('f_title')}
+                      required
+                      value={form.p.name}
+                      onChange={(name) => setForm((f) => ({ ...f, p: { ...f.p, name, slug: slugAuto ? slugify(name.me) : f.p.slug } }))}
+                      className={cn(errors.name && '[&_input]:border-red-500 [&_input]:ring-4 [&_input]:ring-red-500/10')}
+                    />
+                    <FieldError>{errors.name}</FieldError>
                   </div>
+                  <L10nInput label={t('f_short')} multiline rows={2} value={form.p.short} onChange={(v) => setP({ short: v })} hint={t('f_short_h')} />
+                  <L10nInput label={t('f_desc')} multiline rows={7} value={form.p.description} onChange={(v) => setP({ description: v })} hint={t('f_desc_h')} />
                 </div>
-              )}
+              </Card>
             </div>
-          </Card>
 
-          <div id="sec-org" className="scroll-mt-24">
-            <Card title={t('c_org')}>
-              <div className="space-y-5">
-                <FormField label={t('f_category')} required error={errors.category}>
-                  <SelectInput value={draft.categoryId} onChange={(e) => set('categoryId', e.target.value)} invalid={!!errors.category}>
-                    <option value="" disabled>
-                      {t('chooseCategory')}
-                    </option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {l(c.name)}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-                <FormField label={t('f_badges')}>
-                  <div className="flex flex-wrap gap-1.5">
-                    {BADGES.map((b) => {
-                      const on = draft.badges.includes(b);
-                      return (
-                        <button
-                          key={b}
-                          type="button"
-                          aria-pressed={on}
-                          onClick={() => toggleBadge(b)}
-                          className={cn(
-                            'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-all',
-                            on ? 'bg-ink text-paper shadow-sm' : 'bg-white text-ink-soft ring-1 ring-inset ring-line hover:ring-ink/30',
-                          )}
-                        >
-                          {on ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : <span className="h-1.5 w-1.5 rounded-full bg-ink/25" />}
-                          {tc(`badge_${b}`)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </FormField>
-                <div className="border-t border-line/70 pt-4">
-                  <ToggleRow label={t('f_quote')} hint={t('f_quote_h')} checked={!!draft.quoteOnly} onChange={(v) => set('quoteOnly', v)} icon={<Sparkles className="h-4 w-4" />} />
-                </div>
-              </div>
-            </Card>
+            <div id="sec-media" className="scroll-mt-24">
+              <Card title={t('c_media')} description={t('c_media_d')} actions={form.p.images.length > 0 && <span className="text-[12.5px] font-semibold tabular-nums text-muted">{form.p.images.length}</span>}>
+                <GalleryField value={form.p.images} onChange={(v) => setP({ images: v })} />
+                {errors.image && <FieldError>{errors.image}</FieldError>}
+              </Card>
+            </div>
+
+            <div id="sec-price" className="scroll-mt-24">
+              <PricingCard
+                price={form.price}
+                compareAt={form.compareAt}
+                cost={form.p.cost ?? null}
+                unit={form.p.unit}
+                packSize={form.p.packSize ?? null}
+                vat={settings.vatRate}
+                showCost={canCost}
+                priceError={errors.price}
+                onPrice={(price) => setForm((f) => ({ ...f, price }))}
+                onCompareAt={(compareAt) => setForm((f) => ({ ...f, compareAt }))}
+                onCost={(cost) => setP({ cost: cost ?? undefined })}
+                onUnit={(unit) => setP({ unit, packSize: unit === 'm2' ? form.p.packSize || 1 : form.p.packSize })}
+                onPackSize={(v) => setP({ packSize: v ?? undefined })}
+              />
+            </div>
+
+            <div id="sec-variants" className="scroll-mt-24">
+              <VariantsCard
+                product={composed}
+                options={form.p.options}
+                onOptions={setOptions}
+                variants={form.variants}
+                onVariants={(variants) => setForm((f) => ({ ...f, variants }))}
+                tracked={tracked}
+                onTracked={setTracked}
+                sku={form.p.sku}
+                onSku={setSku}
+                barcode={form.p.barcode ?? ''}
+                onBarcode={(v) => setP({ barcode: v || undefined })}
+                stock={form.p.stock}
+                onStock={(stock) => setP({ stock })}
+                takenSkus={takenSkus}
+                skuError={errors.sku}
+              />
+              {errors.variants && <FieldError>{errors.variants}</FieldError>}
+            </div>
+
+            <SpecsEditor value={form.p.specs} onChange={(v) => setP({ specs: v })} />
+            <ShippingCard value={form.p.shipping ?? { physical: true }} onChange={(shipping) => setP({ shipping })} />
+            <SeoCard
+              draft={composed}
+              slugAuto={slugAuto}
+              onSlug={(s) => {
+                setSlugAuto(false);
+                setP({ slug: s.toLowerCase().replace(/\s+/g, '-') });
+              }}
+              onResetSlug={() => {
+                setSlugAuto(true);
+                setP({ slug: slugify(form.p.name.me) });
+              }}
+              onSeo={(seo) => setP({ seo })}
+              redirectFrom={slugChanged ? source?.slug : undefined}
+              redirect={form.redirect}
+              onRedirect={(redirect) => setForm((f) => ({ ...f, redirect }))}
+            />
           </div>
 
-          <Card title={t('c_stock')}>
-            <div className="space-y-4">
-              <FormField label={t('f_sku')}>
-                <TextInput value={draft.sku} onChange={(e) => set('sku', e.target.value.toUpperCase())} placeholder="SC-XX-000" mono spellCheck={false} />
-              </FormField>
-              <FormField label={t('f_stock')} hint={stockNote}>
-                {mto ? (
-                  <div className="flex h-10 items-center gap-2 rounded-lg border border-sky-600/20 bg-sky-50 px-3 text-[14px] font-semibold text-sky-800">
-                    <InfinityIcon className="h-4 w-4" /> {t('f_mto')}
-                  </div>
-                ) : (
-                  <NumInput integer zeroAsEmpty placeholder="0" value={draft.stock} onChange={(v) => set('stock', Math.min(998, v ?? 0))} suffix={draft.unit === 'm2' ? t('packsUnit') : unitLabel(draft.unit, lang)} />
-                )}
-              </FormField>
-              <ToggleRow label={t('f_mto')} hint={t('f_mto_h')} checked={mto} onChange={setMto} icon={<InfinityIcon className="h-4 w-4" />} />
-            </div>
-          </Card>
-
-          <Card title={t('c_install')}>
-            <div className="space-y-4">
-              <ToggleRow
-                label={t('f_install')}
-                hint={t('f_install_h')}
-                checked={installation.available}
-                onChange={(v) => set('installation', { ...installation, available: v })}
-                icon={<Wrench className="h-4 w-4" />}
+          {/* --------------------------- sidebar --------------------------- */}
+          <div className="flex min-w-0 flex-col gap-5 self-stretch">
+            <StatusCard status={form.p.status} original={origStatus} onStatus={(status) => setP({ status })} canPublish={canPublish} canArchive={canArchive} missing={missing} translations={translations} />
+            <PublishingCard channels={form.p.channels ?? []} onChannels={(channels) => setP({ channels })} status={form.p.status} />
+            <div id="sec-org" className="scroll-mt-24">
+              <OrganizationCard
+                categoryId={form.p.categoryId}
+                onCategory={(categoryId) => setP({ categoryId })}
+                categories={categories}
+                categoryError={errors.category}
+                vendor={form.p.vendor ?? ''}
+                onVendor={(vendor) => setP({ vendor })}
+                vendors={vendors}
+                tags={form.p.tags ?? []}
+                onTags={(tags) => setP({ tags })}
+                tagSuggestions={tagSuggestions}
+                collections={collections}
+                manualCols={form.manualCols}
+                onManualCols={(manualCols) => setForm((f) => ({ ...f, manualCols }))}
+                smartMatches={smartMatches}
+                canEditCollections={canCollections}
               />
-              {installation.available && (
-                <FormField label={t('f_installPrice')}>
-                  <NumInput money zeroAsEmpty value={installation.price} onChange={(v) => set('installation', { ...installation, price: v ?? 0 })} suffix={`€ ${perUnit(draft.unit, lang)}`} placeholder="0" />
-                </FormField>
-              )}
             </div>
-          </Card>
+            <TemplateCard value={form.p.template ?? 'standard'} onChange={(template) => setP({ template })} />
+            <InstallCard
+              installation={form.p.installation ?? { available: false, price: 0 }}
+              onInstallation={(installation) => setP({ installation })}
+              leadDays={form.p.leadDays ?? null}
+              onLeadDays={(v) => setP({ leadDays: v ?? undefined })}
+              warranty={form.p.warrantyYears ?? null}
+              onWarranty={(v) => setP({ warrantyYears: v ?? undefined })}
+              unit={form.p.unit}
+            />
+            <DisplayCard badges={form.p.badges} onBadges={(badges) => setP({ badges })} featured={form.p.featured} onFeatured={(featured) => setP({ featured })} />
 
-          <Card title={t('c_delivery')}>
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label={t('f_lead')}>
-                <NumInput integer value={draft.leadDays ?? null} onChange={(v) => set('leadDays', v ?? undefined)} suffix={t('daysUnit')} placeholder="7" />
-              </FormField>
-              <FormField label={t('f_warranty')}>
-                <NumInput integer value={draft.warrantyYears ?? null} onChange={(v) => set('warrantyYears', v ?? undefined)} suffix={t('yearsUnit')} placeholder="2" />
-              </FormField>
-            </div>
-          </Card>
-
-          <div className="lg:sticky lg:top-24">
-            <Card title={t('c_preview')} description={t('c_preview_d')}>
-              <div className="rounded-xl bg-paper px-6 py-6">
-                <div
-                  className="mx-auto max-w-[230px]"
-                  onClickCapture={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                >
-                  <ProductCard product={preview} />
+            <div className="lg:sticky lg:top-[76px]">
+              <Card title={t('c_preview')} description={t('c_preview_d')}>
+                <div className="rounded-xl bg-[#f7f3ee] px-6 py-6" style={brandVars(settings.brandColor)}>
+                  <div
+                    className="mx-auto max-w-[230px]"
+                    onClickCapture={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                  >
+                    <ProductCard product={preview} />
+                  </div>
                 </div>
-              </div>
-              <p className="mt-3 flex items-center gap-1.5 text-[12px] text-muted max-md:hidden">
-                <Keyboard className="h-3.5 w-3.5" /> {t('shortcutTip')}
-              </p>
-            </Card>
+                <p className="mt-3 flex items-center gap-1.5 text-[12px] text-muted max-md:hidden">
+                  <Keyboard className="h-3.5 w-3.5" /> {t('shortcutTip')}
+                </p>
+              </Card>
+            </div>
           </div>
         </div>
-      </div>
+      </fieldset>
 
-      <SaveBar dirty={dirty} onSave={save} onDiscard={discard} />
+      {canEdit && <SaveBar dirty={dirty} onSave={() => save()} onDiscard={discard} />}
+      <DeleteDialog
+        products={deleting}
+        onClose={() => setDeleting([])}
+        onDone={({ deleted }) => {
+          if (source && deleted.includes(source.id)) {
+            bypass.current = true;
+            navigate('/admin/proizvodi');
+            return;
+          }
+          const stored = useDb.getState().products.find((p) => p.id === source?.id) as ProductX | undefined;
+          if (stored) {
+            const fresh = formFrom(stored, useDb.getState().collections);
+            setOriginal(fresh);
+            setForm(fresh);
+          }
+        }}
+      />
     </div>
   );
 }

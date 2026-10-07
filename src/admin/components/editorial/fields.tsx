@@ -5,6 +5,7 @@ import { Button, buttonClass } from '@/components/ui/Button';
 import { useDict } from '@/i18n';
 import type { L10n, Lang } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { href as withBase } from '@/lib/paths';
 import { adm } from '@/admin/i18n';
 import { ed } from './i18n';
 
@@ -187,7 +188,11 @@ export function EditorActions({
   onDelete,
   saveLabel,
   keyLabel,
+  canDelete = true,
+  deleteTitle,
+  canSave = true,
 }: {
+  /** Storefront path, e.g. "/stranica/dostava" (the base path is added here) */
   href: string;
   isNew: boolean;
   dirty: boolean;
@@ -195,6 +200,10 @@ export function EditorActions({
   onDelete: () => void;
   saveLabel: string;
   keyLabel: string;
+  canDelete?: boolean;
+  /** Tooltip when delete is not allowed */
+  deleteTitle?: string;
+  canSave?: boolean;
 }) {
   const t = useDict(ed, 'admin');
   const ta = useDict(adm, 'admin');
@@ -205,19 +214,23 @@ export function EditorActions({
           <ExternalLink className="h-3.5 w-3.5" /> {t('viewOnSite')}
         </span>
       ) : (
-        <a href={href} target="_blank" rel="noreferrer" className={buttonClass({ variant: 'outline', size: 'sm', shape: 'rounded' })}>
+        <a href={withBase(href)} target="_blank" rel="noreferrer" className={buttonClass({ variant: 'outline', size: 'sm', shape: 'rounded' })}>
           <ExternalLink className="h-3.5 w-3.5" /> {t('viewOnSite')}
         </a>
       )}
       {!isNew && (
-        <Button variant="outline" size="sm" shape="rounded" onClick={onDelete} className="text-red-600 hover:border-red-300 hover:text-red-700" aria-label={ta('delete')} title={ta('delete')}>
-          <Trash2 className="h-3.5 w-3.5" />
+        <span title={canDelete ? ta('delete') : deleteTitle}>
+          <Button variant="outline" size="sm" shape="rounded" onClick={onDelete} disabled={!canDelete} className="text-red-600 hover:border-red-300 hover:text-red-700" aria-label={ta('delete')}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </span>
+      )}
+      {canSave && (
+        <Button size="sm" shape="rounded" onClick={onSave} disabled={!dirty && !isNew}>
+          {saveLabel}
+          <kbd className="ml-1 hidden rounded bg-white/15 px-1.5 py-px font-sans text-[10.5px] font-semibold tracking-wide text-white/85 sm:inline">{keyLabel}</kbd>
         </Button>
       )}
-      <Button size="sm" shape="rounded" onClick={onSave} disabled={!dirty && !isNew}>
-        {saveLabel}
-        <kbd className="ml-1 hidden rounded bg-white/15 px-1.5 py-px font-sans text-[10.5px] font-semibold tracking-wide text-white/85 sm:inline">{keyLabel}</kbd>
-      </Button>
     </>
   );
 }

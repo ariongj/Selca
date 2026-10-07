@@ -118,10 +118,20 @@ function ValueRow({
 
 export function OptionsEditor({ value, onChange }: { value: ProductOption[]; onChange: (v: ProductOption[]) => void }) {
   const t = useDict(pd, 'admin');
-  const l = useL('admin');
   const adminLang = useLang('admin');
   const [lang, setLang] = useState<Lang>(adminLang);
   const missing = useMemo(() => missingCounts(value.flatMap((o) => [o.name, ...o.values.map((v) => v.label)])), [value]);
+  return (
+    <Card title={t('c_options')} description={t('c_options_d')} actions={value.length > 0 && <LangTabs value={lang} onChange={setLang} missing={missing} title={t('langHint')} />} padded={false}>
+      <OptionsFields value={value} onChange={onChange} lang={lang} />
+    </Card>
+  );
+}
+
+/** Options list + "add option" footer, without a card — embedded in "Variantet & inventari". */
+export function OptionsFields({ value, onChange, lang }: { value: ProductOption[]; onChange: (v: ProductOption[]) => void; lang: Lang }) {
+  const t = useDict(pd, 'admin');
+  const l = useL('admin');
 
   const update = (i: number, patch: Partial<ProductOption>) => onChange(value.map((o, k) => (k === i ? { ...o, ...patch } : o)));
   const setValues = (i: number, values: ProductOptionValue[]) => update(i, { values });
@@ -132,7 +142,7 @@ export function OptionsEditor({ value, onChange }: { value: ProductOption[]; onC
   });
 
   return (
-    <Card title={t('c_options')} description={t('c_options_d')} actions={value.length > 0 && <LangTabs value={lang} onChange={setLang} missing={missing} title={t('langHint')} />} padded={false}>
+    <>
       <div className="space-y-3 p-4 sm:p-5">
         {value.length === 0 && (
           <div className="flex items-center gap-3 rounded-xl border border-dashed border-line bg-canvas/40 px-4 py-4 text-[13px] text-muted">
@@ -238,6 +248,6 @@ export function OptionsEditor({ value, onChange }: { value: ProductOption[]; onC
           </>
         )}
       </div>
-    </Card>
+    </>
   );
 }

@@ -108,12 +108,12 @@ export function IconBtn({ icon, label, onClick, danger, disabled, className }: {
 /** KPI tile used at the top of catalog pages. */
 export function StatTile({ icon, label, value, hint, accent }: { icon: ReactNode; label: ReactNode; value: ReactNode; hint?: ReactNode; accent?: boolean }) {
   return (
-    <div className="rounded-2xl border border-line/80 bg-white p-4 shadow-[0_1px_2px_rgb(28_26_23/0.04)] sm:p-5">
+    <div className="rounded-xl border border-line/80 bg-white p-4 shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
       <div className="flex items-start justify-between gap-3">
         <span className="text-[12.5px] font-semibold leading-tight text-muted">{label}</span>
-        <span className={cn('grid h-8 w-8 shrink-0 place-items-center rounded-lg', accent ? 'bg-brand-50 text-brand-700' : 'bg-canvas text-ink-soft')}>{icon}</span>
+        <span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-md', accent ? 'bg-ink text-white' : 'bg-canvas text-ink-soft')}>{icon}</span>
       </div>
-      <div className="mt-1.5 text-[26px] font-extrabold leading-none tracking-tight text-ink tabular-nums">{value}</div>
+      <div className="mt-1.5 text-[24px] font-bold leading-none tracking-tight text-ink tabular-nums">{value}</div>
       {hint && <div className="mt-1.5 truncate text-xs text-muted">{hint}</div>}
     </div>
   );

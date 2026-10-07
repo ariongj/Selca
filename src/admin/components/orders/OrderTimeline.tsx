@@ -1,75 +1,75 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Ban, CircleDollarSign, Globe, MessageSquareText, Send } from 'lucide-react';
+import { Ban, Euro, Globe, MessageSquareText, Send } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { ORDER_STATUS_TONE } from '@/admin/components/kit';
 import { defineDict, useDict, useLang } from '@/i18n';
 import { common } from '@/i18n/common';
 import { useDb } from '@/store/db';
+import { useCan } from '@/store/hooks';
 import { dateTime, timeAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import type { Order, OrderEvent, OrderStatus } from '@/lib/types';
-import { isRecent } from './helpers';
+import type { Order, OrderEvent } from '@/lib/types';
+import { actorName, isCarrierKey, isRecent } from './helpers';
+import { od } from './dict';
 
 const T = defineDict({
   me: {
     placeholder: 'Dodajte internu napomenu (vidi je samo tim)…',
-    add: 'Dodaj napomenu',
+    add: 'Dodaj',
     added: 'Napomena je dodata',
-    shortcut: 'Ctrl + Enter za slanje',
+    shortcut: 'Ctrl + Enter',
     ev_created: 'Narudžba primljena preko web prodavnice',
-    ev_status: 'Status promijenjen u „{s}“',
+    ev_createdStaff: 'Narudžbu je kreirao tim',
+    ev_fromDraft: 'Konvertovana iz nacrta {n}',
+    ev_status: 'Status: „{s}“',
     ev_cancelled: 'Narudžba je otkazana',
     ev_note: 'Interna napomena',
     ev_payment: 'Uplata je evidentirana',
-    by_web: 'Web prodavnica',
-    by_admin: 'Admin',
+    ev_refund: 'Refundacija',
     empty: 'Još nema aktivnosti.',
   },
   sq: {
     placeholder: 'Shtoni një shënim të brendshëm (e sheh vetëm ekipi)…',
-    add: 'Shto shënim',
+    add: 'Shto',
     added: 'Shënimi u shtua',
-    shortcut: 'Ctrl + Enter për ta dërguar',
-    ev_created: 'Porosia u pranua nga dyqani online',
-    ev_status: 'Statusi u ndryshua në „{s}“',
+    shortcut: 'Ctrl + Enter',
+    ev_created: 'Porosia u pranua nga Online Store',
+    ev_createdStaff: 'Porosia u krijua nga ekipi',
+    ev_fromDraft: 'U konvertua nga drafti {n}',
+    ev_status: 'Statusi: „{s}“',
     ev_cancelled: 'Porosia u anulua',
     ev_note: 'Shënim i brendshëm',
     ev_payment: 'Pagesa u regjistrua',
-    by_web: 'Dyqani online',
-    by_admin: 'Admin',
+    ev_refund: 'Rimbursim',
     empty: 'Ende nuk ka aktivitet.',
   },
   en: {
     placeholder: 'Add an internal note (visible to your team only)…',
-    add: 'Add note',
+    add: 'Add',
     added: 'Note added',
-    shortcut: 'Ctrl + Enter to send',
-    ev_created: 'Order received from the online shop',
-    ev_status: 'Status changed to “{s}”',
+    shortcut: 'Ctrl + Enter',
+    ev_created: 'Order received from the Online Store',
+    ev_createdStaff: 'Order created by the team',
+    ev_fromDraft: 'Converted from draft {n}',
+    ev_status: 'Status: “{s}”',
     ev_cancelled: 'Order was cancelled',
     ev_note: 'Internal note',
     ev_payment: 'Payment recorded',
-    by_web: 'Online shop',
-    by_admin: 'Admin',
+    ev_refund: 'Refund',
     empty: 'No activity yet.',
   },
 });
 
-const DOT: Record<string, string> = {
-  brand: 'bg-brand-600 text-white',
-  blue: 'bg-sky-600 text-white',
-  amber: 'bg-amber-500 text-white',
-  violet: 'bg-violet-600 text-white',
-  green: 'bg-emerald-600 text-white',
-  gray: 'bg-ink/40 text-white',
-};
+const isRefund = (e: OrderEvent) => e.status === 'payment' && !!e.note && /refund|RT-\d/i.test(e.note);
 
-/** Order activity feed (newest first) with an "add internal note" composer. */
+/** Order history (newest first) with an "add internal note" composer — PDF p.18 "historiku ruhet në një timeline". */
 export function OrderTimeline({ order }: { order: Order }) {
   const t = useDict(T, 'admin');
+  const to = useDict(od, 'admin');
   const tc = useDict(common, 'admin');
   const lang = useLang('admin');
+  const can = useCan();
+  const staff = useDb((s) => s.staff);
   const addOrderNote = useDb((s) => s.addOrderNote);
   const [note, setNote] = useState('');
 
@@ -81,81 +81,85 @@ export function OrderTimeline({ order }: { order: Order }) {
     toast.success(t('added'));
   };
 
-  const events = [...order.timeline].reverse();
+  const events = order.timeline.map((e, i) => ({ e, i })).reverse();
 
-  const title = (e: OrderEvent, first: boolean) => {
+  const title = (e: OrderEvent, i: number) => {
     if (e.status === 'note') return t('ev_note');
+    if (isRefund(e)) return t('ev_refund');
     if (e.status === 'payment') return t('ev_payment');
     if (e.status === 'cancelled') return t('ev_cancelled');
-    if (e.status === 'new' && first) return t('ev_created');
+    if (i === 0 && e.status === 'new') return e.by === 'web' ? t('ev_created') : t('ev_createdStaff');
+    if (order.draftId && e.status === 'confirmed' && e.note && /^D-\d+/.test(e.note)) return t('ev_fromDraft', { n: e.note });
     return t('ev_status', { s: tc(`status_${e.status}`) });
   };
 
-  const icon = (e: OrderEvent) => {
-    if (e.status === 'note') return <MessageSquareText className="h-3.5 w-3.5" />;
-    if (e.status === 'payment') return <CircleDollarSign className="h-3.5 w-3.5" />;
-    if (e.status === 'cancelled') return <Ban className="h-3.5 w-3.5" />;
-    if (e.by === 'web') return <Globe className="h-3.5 w-3.5" />;
-    return <span className="h-1.5 w-1.5 rounded-full bg-current" />;
+  // fulfillOrder() writes "<carrier key> <tracking>" — show the carrier by name
+  const noteText = (e: OrderEvent) => {
+    const m = e.status === 'shipped' && e.note ? /^(\S+)\s+(.+)$/.exec(e.note) : null;
+    return m && isCarrierKey(m[1]) ? `${to(`carrier_${m[1]}`)} · ${m[2]}` : e.note;
   };
 
-  const tone = (e: OrderEvent) => {
-    if (e.status === 'note') return 'bg-sand text-ink-soft ring-1 ring-line';
-    if (e.status === 'payment') return DOT.green;
-    return DOT[ORDER_STATUS_TONE[e.status as OrderStatus]] ?? DOT.gray;
+  const icon = (e: OrderEvent, i: number) => {
+    if (e.status === 'note') return <MessageSquareText className="h-3.5 w-3.5" />;
+    if (e.status === 'payment') return <Euro className="h-3.5 w-3.5" />;
+    if (e.status === 'cancelled') return <Ban className="h-3.5 w-3.5" />;
+    if (i === 0 && e.by === 'web') return <Globe className="h-3.5 w-3.5" />;
+    return <span className="h-1.5 w-1.5 rounded-full bg-current" />;
   };
 
   return (
     <div>
-      <div className="rounded-xl border border-line bg-canvas/40 focus-within:border-ink/30 focus-within:bg-white focus-within:ring-4 focus-within:ring-ink/5">
-        <textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          rows={2}
-          placeholder={t('placeholder')}
-          className="block w-full resize-none bg-transparent px-3.5 pt-3 text-sm leading-relaxed text-ink outline-none placeholder:text-muted/80"
-        />
-        <div className="flex items-center justify-between gap-3 px-2.5 pb-2.5">
-          <span className="hidden pl-1 text-[11px] text-muted sm:block">{t('shortcut')}</span>
-          <Button size="xs" shape="rounded" variant="dark" className="ml-auto" icon={<Send className="h-3.5 w-3.5" />} disabled={!note.trim()} onClick={submit}>
-            {t('add')}
-          </Button>
+      {can('orders', 'edit') && (
+        <div className="rounded-lg border border-line bg-white focus-within:border-ink/30 focus-within:ring-4 focus-within:ring-ink/5">
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            rows={2}
+            placeholder={t('placeholder')}
+            className="block w-full resize-none rounded-lg bg-transparent px-3 pt-2.5 text-[13.5px] leading-relaxed text-ink outline-none placeholder:text-muted/80"
+          />
+          <div className="flex items-center justify-between gap-3 px-2 pb-2">
+            <span className="hidden pl-1 text-[11.5px] text-muted sm:block">{t('shortcut')}</span>
+            <Button size="xs" shape="rounded" variant="primary" className="ml-auto" icon={<Send className="h-3.5 w-3.5" />} disabled={!note.trim()} onClick={submit}>
+              {t('add')}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       {events.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted">{t('empty')}</p>
+        <p className="py-6 text-center text-[13px] text-muted">{t('empty')}</p>
       ) : (
-        <ol className="mt-5">
-          {events.map((e, i) => {
-            const first = i === events.length - 1;
+        <ol className="mt-4">
+          {events.map(({ e, i }, k) => {
+            const last = k === events.length - 1;
+            const strong = e.status !== 'note' && e.status !== 'payment';
             return (
-              <li key={`${e.at}-${i}`} className="relative flex gap-3 pb-5 last:pb-0">
-                {!first && <span aria-hidden className="absolute bottom-0 left-[13px] top-7 w-px bg-line" />}
-                <span className={cn('relative z-10 mt-0.5 grid h-[27px] w-[27px] shrink-0 place-items-center rounded-full', tone(e))}>{icon(e)}</span>
+              <li key={`${e.at}-${i}`} className="relative flex gap-3 pb-4 last:pb-0">
+                {!last && <span aria-hidden className="absolute bottom-0 left-[11px] top-6 w-px bg-line" />}
+                <span
+                  className={cn(
+                    'relative z-10 mt-0.5 grid h-[23px] w-[23px] shrink-0 place-items-center rounded-full',
+                    e.status === 'cancelled' ? 'bg-[#FDE3DF] text-[#8A1B0A]' : k === 0 && strong ? 'bg-ink text-white' : strong ? 'bg-white text-ink ring-1 ring-line' : 'bg-[#EBEBEB] text-ink-soft',
+                  )}
+                >
+                  {icon(e, i)}
+                </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] font-semibold leading-snug text-ink">{title(e, first)}</p>
-                  {e.note && <p className={cn('mt-1.5 whitespace-pre-line rounded-lg px-3 py-2 text-[13px] leading-relaxed', e.status === 'note' ? 'bg-amber-50/70 text-ink ring-1 ring-amber-600/10' : 'bg-canvas text-ink-soft')}>{e.note}</p>}
-                  <p className="mt-1 text-[11.5px] text-muted">
+                  <p className="text-[13.5px] font-semibold leading-snug text-ink">{title(e, i)}</p>
+                  {e.note && !(order.draftId && e.status === 'confirmed' && /^D-\d+$/.test(e.note)) && (
+                    <p className={cn('mt-1 whitespace-pre-line rounded-lg px-2.5 py-1.5 text-[13px] leading-relaxed', e.status === 'note' ? 'bg-[#FFF8E1] text-ink ring-1 ring-[#E8D9A8]' : 'bg-canvas text-ink-soft')}>{noteText(e)}</p>
+                  )}
+                  <p className="mt-0.5 text-[12px] text-muted">
                     {dateTime(e.at, lang)}
-                    {isRecent(e.at) && (
-                      <>
-                        <span className="mx-1.5">·</span>
-                        {timeAgo(e.at, lang)}
-                      </>
-                    )}
-                    {e.by && (
-                      <>
-                        <span className="mx-1.5">·</span>
-                        {e.by === 'web' ? t('by_web') : e.by === 'admin' ? t('by_admin') : e.by}
-                      </>
-                    )}
+                    {isRecent(e.at) && <> · {timeAgo(e.at, lang)}</>}
+                    {e.by && <> · {actorName(e.by, staff, { web: to('by_web'), admin: to('by_admin') })}</>}
                   </p>
                 </div>
               </li>

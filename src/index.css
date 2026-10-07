@@ -169,6 +169,29 @@
   to { width: 100%; }
 }
 
+/* ------------------------------------------------------------------ */
+/* CMS v2 neutral admin (PDF p.07). `html[data-admin]` is set by        */
+/* setAdminTheme() (src/lib/color.ts) while the route starts with       */
+/* /admin; it also remaps brand-* to greys/black and the warm tokens    */
+/* to neutral ones. Base text 13–14 px, cards 10–12 px radius.          */
+/* ------------------------------------------------------------------ */
+html[data-admin] body {
+  background: var(--color-canvas);
+  font-size: 14px;
+  line-height: 1.45;
+}
+html[data-admin] .card {
+  border-radius: 12px;
+}
+html[data-admin] .skeleton {
+  background: linear-gradient(90deg, #e9e9e9 0px, #f4f4f4 120px, #e9e9e9 240px);
+  background-size: 800px 100%;
+}
+html[data-admin] ::selection {
+  background: #1a1a1a;
+  color: #fff;
+}
+
 /* CMS live-preview: briefly outline the section being edited */
 .preview-highlight {
   outline: 3px solid var(--color-brand-600);

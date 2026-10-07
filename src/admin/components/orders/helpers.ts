@@ -1,9 +1,73 @@
-// Shared helpers for the CMS orders area (list, detail, invoice).
+// Shared helpers for the CMS orders area (list, detail, invoice, drafts, returns).
 import { Banknote, CreditCard, Landmark, type LucideIcon } from 'lucide-react';
 import { lt } from '@/i18n';
-import { num, unitLabel } from '@/lib/format';
+import { money, num, unitLabel } from '@/lib/format';
 import { fold } from '@/lib/search';
-import type { Lang, Order, OrderLine, OrderStatus, PaymentMethod, Product } from '@/lib/types';
+import { customerKeyOf } from '@/lib/crm';
+import type { RejectedDiscount } from '@/lib/discounts';
+import type { Discount, Lang, Order, OrderLine, OrderStatus, PaymentMethod, Product, Staff } from '@/lib/types';
+
+/* ------------------------------------------------------------------ */
+/* Archive (PDF p.17: "Arkivimi është organizim liste, jo rimbursim")   */
+/* ------------------------------------------------------------------ */
+/**
+ * The Order type has no archive field yet, so the orders area stores `archivedAt` next to the order
+ * (persisted like any other order field). Archiving only hides the order from the working lists —
+ * payment, fulfilment and stock are untouched.
+ */
+export type ArchivableOrder = Order & { archivedAt?: string };
+export const archivedAtOf = (o: Order) => (o as ArchivableOrder).archivedAt;
+export const isArchived = (o: Order) => !!archivedAtOf(o);
+/** Patch for useDb().updateOrder that archives (iso) or restores (null) an order. */
+export const archivePatch = (at: string | null) => ({ archivedAt: at ?? undefined }) as Partial<Order>;
+
+/* ------------------------------------------------------------------ */
+/* Channel, customer, staff                                            */
+/* ------------------------------------------------------------------ */
+export type OrderChannel = 'online' | 'draft';
+/** Orders converted from a draft were created by staff; everything else came through the Online Store. */
+export const channelOf = (o: Pick<Order, 'draftId'>): OrderChannel => (o.draftId ? 'draft' : 'online');
+
+/** Deep link to the customer profile (Customers page reads `?c=<customer key>`). */
+export const customerLink = (o: Pick<Order, 'customer'>) => `/admin/kupci?c=${encodeURIComponent(customerKeyOf(o))}`;
+
+/** "web" / "admin" / staff id → display name. */
+export function actorName(by: string | undefined, staff: Staff[], labels: { web: string; admin: string }) {
+  if (!by) return '';
+  if (by === 'web') return labels.web;
+  if (by === 'admin') return labels.admin;
+  return staff.find((m) => m.id === by)?.name ?? by;
+}
+
+/* ------------------------------------------------------------------ */
+/* Carriers (stored as a key on order.fulfillment.carrier)             */
+/* ------------------------------------------------------------------ */
+export const CARRIERS = ['selca', 'courier', 'pickup', 'other'] as const;
+export type CarrierKey = (typeof CARRIERS)[number];
+export const isCarrierKey = (v: string | undefined): v is CarrierKey => !!v && (CARRIERS as readonly string[]).includes(v);
+
+/* ------------------------------------------------------------------ */
+/* Discounts                                                           */
+/* ------------------------------------------------------------------ */
+/** Shopper-facing name of an applied rule in the admin language, falling back to the stored internal title. */
+export function discountName(id: string | undefined, fallback: string, discounts: Discount[], lang: Lang) {
+  const d = id ? discounts.find((x) => x.id === id) : undefined;
+  return d ? lt(d.publicTitle, lang) || d.title : fallback;
+}
+
+type Dict = (key: 'rej_notfound' | 'rej_inactive' | 'rej_scheduled' | 'rej_expired' | 'rej_minimum_amount' | 'rej_minimum_qty' | 'rej_notCombinable' | 'rej_notCombinablePlain' | 'rej_notEligible' | 'rej_usageLimit' | 'rej_audience', vars?: Record<string, string | number>) => string;
+
+/** Explain why the discount engine did not apply a rule (PDF p.23 "Arsyet e refuzimit"). */
+export function rejectText(r: RejectedDiscount, t: Dict, lang: Lang, nameOf: (id: string) => string) {
+  switch (r.reason) {
+    case 'minimum':
+      return r.minimumType === 'qty' ? t('rej_minimum_qty', { missing: num(r.missing ?? 0, lang) }) : t('rej_minimum_amount', { missing: money(r.missing ?? 0, lang) });
+    case 'notCombinable':
+      return r.conflictsWith ? t('rej_notCombinable', { other: nameOf(r.conflictsWith) }) : t('rej_notCombinablePlain');
+    default:
+      return t(`rej_${r.reason}`);
+  }
+}
 
 /** The happy-path flow an order moves through (cancelled sits outside it). */
 export const ORDER_FLOW: OrderStatus[] = ['new', 'confirmed', 'processing', 'shipped', 'installation', 'completed'];
@@ -74,6 +138,9 @@ export function pluralForm(n: number, lang: Lang): 'one' | 'few' | 'many' {
   }
   return n === 1 ? 'one' : 'many';
 }
+
+/** "{n} stavka/stavke/stavki" style keys: base_one / base_few / base_many. */
+export const pluralKey = <B extends string>(base: B, n: number, lang: Lang) => `${base}_${pluralForm(n, lang)}` as `${B}_one` | `${B}_few` | `${B}_many`;
 
 /** Semicolon CSV (Excel in ME/SQ locales) — values quoted when needed. */
 export function toCsv(rows: (string | number)[][]) {

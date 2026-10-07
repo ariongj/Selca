@@ -8,21 +8,24 @@ import type { BKey } from './i18n';
 
 type IconC = ComponentType<{ className?: string }>;
 
+/** Neutral icon tile (CMS v2: black / grey / white, no decorative colour). */
+export const ICON_TILE = 'bg-[#F4F4F4] text-ink ring-black/[0.06]';
+
 /** Visual identity of each homepage section type in the builder. */
 export const SECTION_META: Record<HomeSectionType, { icon: IconC; tone: string }> = {
-  hero: { icon: GalleryHorizontalEnd, tone: 'bg-brand-50 text-brand-700 ring-brand-600/15' },
-  trust: { icon: ShieldCheck, tone: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15' },
-  categories: { icon: LayoutGrid, tone: 'bg-amber-50 text-amber-800 ring-amber-600/20' },
-  featured: { icon: ShoppingBag, tone: 'bg-violet-50 text-violet-700 ring-violet-600/15' },
-  promo: { icon: BadgePercent, tone: 'bg-rose-50 text-rose-700 ring-rose-600/15' },
-  process: { icon: ListOrdered, tone: 'bg-sky-50 text-sky-700 ring-sky-600/15' },
-  services: { icon: Wrench, tone: 'bg-orange-50 text-orange-700 ring-orange-600/15' },
-  projects: { icon: Images, tone: 'bg-stone-100 text-stone-700 ring-stone-500/20' },
-  stats: { icon: Quote, tone: 'bg-indigo-50 text-indigo-700 ring-indigo-600/15' },
-  instagram: { icon: Instagram, tone: 'bg-pink-50 text-pink-700 ring-pink-600/15' },
-  faq: { icon: HelpCircle, tone: 'bg-teal-50 text-teal-700 ring-teal-600/15' },
-  blog: { icon: BookOpen, tone: 'bg-lime-50 text-lime-800 ring-lime-600/20' },
-  cta: { icon: CalendarCheck, tone: 'bg-red-50 text-red-700 ring-red-600/15' },
+  hero: { icon: GalleryHorizontalEnd, tone: ICON_TILE },
+  trust: { icon: ShieldCheck, tone: ICON_TILE },
+  categories: { icon: LayoutGrid, tone: ICON_TILE },
+  featured: { icon: ShoppingBag, tone: ICON_TILE },
+  promo: { icon: BadgePercent, tone: ICON_TILE },
+  process: { icon: ListOrdered, tone: ICON_TILE },
+  services: { icon: Wrench, tone: ICON_TILE },
+  projects: { icon: Images, tone: ICON_TILE },
+  stats: { icon: Quote, tone: ICON_TILE },
+  instagram: { icon: Instagram, tone: ICON_TILE },
+  faq: { icon: HelpCircle, tone: ICON_TILE },
+  blog: { icon: BookOpen, tone: ICON_TILE },
+  cta: { icon: CalendarCheck, tone: ICON_TILE },
 };
 
 /** Icons the storefront trust bar knows how to render (see site/sections/HomeSections ICONS). */

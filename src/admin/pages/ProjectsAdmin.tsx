@@ -1,18 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
-import { Hammer, ImageOff, MapPin, Pencil, Plus, Star, Trash2 } from 'lucide-react';
+import { Database, Eye, Hammer, ImageOff, MapPin, Pencil, Plus, Star, StarOff, Trash2 } from 'lucide-react';
 import { PageHeader, FilterPills, SearchInput, confirmDialog } from '@/admin/components/kit';
 import { L10nInput } from '@/admin/components/L10nInput';
 import { ImageField } from '@/admin/components/media';
 import { SwitchRow, TextField } from '@/admin/components/editorial/fields';
 import { TagsEditor } from '@/admin/components/editorial/TagsEditor';
 import { ed } from '@/admin/components/editorial/i18n';
-import { Button } from '@/components/ui/Button';
+import { cx } from '@/admin/components/editorial/dict';
+import { ActionMenu, Notice } from '@/admin/components/editorial/ui';
+import { Button, ButtonLink } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Overlay';
 import { EmptyState, Img } from '@/components/ui/misc';
 import { defineDict, useDict, useL, emptyL10n } from '@/i18n';
 import { adm } from '@/admin/i18n';
 import { useDb } from '@/store/db';
+import { useCan } from '@/store/hooks';
 import { allCities } from '@/lib/pricing';
 import type { L10n, Project } from '@/lib/types';
 import { fold } from '@/lib/search';
@@ -20,10 +24,10 @@ import { cn, uid } from '@/lib/utils';
 
 const T = defineDict({
   me: {
-    title: 'Realizacije',
-    description: 'Portfolio završenih projekata. Izdvojeni (★) se prikazuju na početnoj stranici, svi na stranici „Projekti“.',
+    description: 'Portfolio završenih projekata — unosi modela „Projekti“. Izdvojeni (★) se prikazuju na početnoj, svi na stranici „Realizacije“.',
     newProject: 'Novi projekat',
-    featured: 'Izdvojeni',
+    model: 'Model sadržaja',
+    featured: 'Na početnoj',
     featuredBadge: 'Na početnoj',
     featureAdd: 'Izdvoji na početnoj',
     featureRemove: 'Ukloni sa početne',
@@ -56,18 +60,18 @@ const T = defineDict({
     locationRequired: 'Unesite lokaciju.',
     yearInvalid: 'Unesite ispravnu godinu.',
     imageRequired: 'Izaberite fotografiju.',
-    homeCount: '{n} na početnoj',
+    stats: '{n} projekata · {f} na početnoj · {c} gradova',
   },
   sq: {
-    title: 'Realizimet',
-    description: 'Portofoli i projekteve të përfunduara. Të veçuarit (★) shfaqen në faqen kryesore, të gjithë në faqen „Projektet“.',
+    description: 'Portofoli i projekteve të përfunduara — regjistrimet e modelit „Projektet“. Të veçuarit (★) shfaqen në ballinë, të gjithë në faqen „Realizimet“.',
     newProject: 'Projekt i ri',
-    featured: 'Të veçuar',
+    model: 'Modeli i përmbajtjes',
+    featured: 'Në ballinë',
     featuredBadge: 'Në ballinë',
-    featureAdd: 'Veço në faqen kryesore',
-    featureRemove: 'Hiq nga faqja kryesore',
-    nowFeatured: 'Projekti u veçua në faqen kryesore',
-    nowUnfeatured: 'Projekti nuk është më në faqen kryesore',
+    featureAdd: 'Veço në ballinë',
+    featureRemove: 'Hiq nga ballina',
+    nowFeatured: 'Projekti u veçua në ballinë',
+    nowUnfeatured: 'Projekti nuk është më në ballinë',
     searchPh: 'Kërko sipas emrit ose qytetit…',
     empty: 'Ende nuk ka realizime',
     emptyText: 'Shtoni projektin e parë të përfunduar me foto — është rekomandimi më i mirë për klientët e rinj.',
@@ -86,8 +90,8 @@ const T = defineDict({
     fYear: 'Viti',
     fImage: 'Fotografia',
     fImageHint: 'Më mirë foto horizontale, të paktën 1200 px e gjerë.',
-    fFeatured: 'Veço në faqen kryesore',
-    fFeaturedHint: 'Shfaqet në seksionin „Realizimet“ në faqen kryesore.',
+    fFeatured: 'Veço në ballinë',
+    fFeaturedHint: 'Shfaqet në seksionin „Realizimet“ në ballinë.',
     saved: 'Projekti u ruajt',
     created: 'Projekti u shtua në portofol',
     deleteTitle: 'Të fshihet projekti „{name}“?',
@@ -95,13 +99,13 @@ const T = defineDict({
     locationRequired: 'Shkruani vendndodhjen.',
     yearInvalid: 'Shkruani një vit të saktë.',
     imageRequired: 'Zgjidhni një fotografi.',
-    homeCount: '{n} në ballinë',
+    stats: '{n} projekte · {f} në ballinë · {c} qytete',
   },
   en: {
-    title: 'Projects',
-    description: 'Portfolio of completed projects. Featured ones (★) appear on the homepage, all of them on the “Projects” page.',
+    description: 'Portfolio of completed projects — entries of the “Projects” model. Featured ones (★) appear on the homepage, all of them on the “Projects” page.',
     newProject: 'New project',
-    featured: 'Featured',
+    model: 'Content model',
+    featured: 'On homepage',
     featuredBadge: 'On homepage',
     featureAdd: 'Feature on homepage',
     featureRemove: 'Remove from homepage',
@@ -134,7 +138,7 @@ const T = defineDict({
     locationRequired: 'Enter a location.',
     yearInvalid: 'Enter a valid year.',
     imageRequired: 'Choose a photo.',
-    homeCount: '{n} on homepage',
+    stats: '{n} projects · {f} on homepage · {c} cities',
   },
 });
 
@@ -155,14 +159,43 @@ export default function ProjectsAdmin() {
   const t = useDict(T, 'admin');
   const ta = useDict(adm, 'admin');
   const te = useDict(ed, 'admin');
+  const tc = useDict(cx, 'admin');
   const l = useL('admin');
+  const can = useCan();
   const projects = useDb((s) => s.projects);
   const upsertProject = useDb((s) => s.upsertProject);
   const deleteProject = useDb((s) => s.deleteProject);
+  const [params, setParams] = useSearchParams();
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
   const [editing, setEditing] = useState<Project | null>(null);
   const [isNew, setIsNew] = useState(false);
+
+  const canEdit = can('content', 'edit');
+  const canDelete = can('content', 'delete');
+
+  // Deep links: /admin/projekti?id=<project> (media usage, content models) and ?novi=1
+  const deepId = params.get('id');
+  const deepNew = params.get('novi');
+  useEffect(() => {
+    if (deepId) {
+      const p = projects.find((x) => x.id === deepId);
+      if (p) {
+        setIsNew(false);
+        setEditing(structuredClone(p));
+      }
+    } else if (deepNew && canEdit) {
+      setIsNew(true);
+      setEditing(blankProject());
+    }
+    // open once per link
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepId, deepNew]);
+
+  const close = () => {
+    setEditing(null);
+    if (deepId || deepNew) setParams({}, { replace: true });
+  };
 
   /** Every tag used across the portfolio (deduplicated on the Montenegrin label). */
   const allTags = useMemo(() => {
@@ -180,6 +213,7 @@ export default function ProjectsAdmin() {
   }, [projects]);
 
   const featuredCount = useMemo(() => projects.filter((p) => p.featured).length, [projects]);
+  const cityCount = useMemo(() => new Set(projects.map((p) => p.location.trim().toLowerCase()).filter(Boolean)).size, [projects]);
 
   const list = useMemo(() => {
     const needle = fold(q.trim());
@@ -218,14 +252,28 @@ export default function ProjectsAdmin() {
   return (
     <div>
       <PageHeader
-        title={t('title')}
+        breadcrumbs={[ta('nav_content'), ta('nav_projects')]}
+        title={ta('nav_projects')}
         description={t('description')}
         actions={
-          <Button shape="rounded" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openNew}>
-            {t('newProject')}
-          </Button>
+          <>
+            <ButtonLink to="/admin/modeli?model=cm-projekti" variant="outline" shape="rounded" size="sm" icon={<Database className="h-4 w-4" />}>
+              {t('model')}
+            </ButtonLink>
+            {canEdit && (
+              <Button shape="rounded" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openNew}>
+                {t('newProject')}
+              </Button>
+            )}
+          </>
         }
       />
+
+      {!canEdit && (
+        <Notice icon={Eye} className="mb-5">
+          <span className="font-semibold text-ink">{tc('readOnly')}.</span> {tc('readOnlyText')}
+        </Notice>
+      )}
 
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <FilterPills
@@ -238,7 +286,7 @@ export default function ProjectsAdmin() {
               id: 'featured',
               label: (
                 <span className="inline-flex items-center gap-1.5">
-                  <Star className={cn('h-3.5 w-3.5', filter === 'featured' ? 'fill-amber-300 text-amber-300' : 'fill-amber-400 text-amber-400')} />
+                  <Star className="h-3.5 w-3.5 fill-current" />
                   {t('featured')}
                 </span>
               ),
@@ -250,39 +298,43 @@ export default function ProjectsAdmin() {
         <SearchInput value={q} onChange={setQ} placeholder={t('searchPh')} className="shrink-0 lg:w-72" />
       </div>
 
+      {projects.length > 0 && <p className="-mt-1 mb-4 text-[12.5px] text-muted">{t('stats', { n: projects.length, f: featuredCount, c: cityCount })}</p>}
+
       {projects.length === 0 ? (
-        <div className="rounded-2xl border border-line/80 bg-white">
+        <div className="rounded-xl border border-line/80 bg-white">
           <EmptyState
             icon={<Hammer className="h-6 w-6" />}
             title={t('empty')}
             text={t('emptyText')}
             action={
-              <Button shape="rounded" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openNew}>
-                {t('newProject')}
-              </Button>
+              canEdit ? (
+                <Button shape="rounded" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openNew}>
+                  {t('newProject')}
+                </Button>
+              ) : undefined
             }
           />
         </div>
       ) : list.length === 0 ? (
-        <div className="rounded-2xl border border-line/80 bg-white">
+        <div className="rounded-xl border border-line/80 bg-white">
           <EmptyState icon={<Hammer className="h-6 w-6" />} title={ta('noResults')} text={t('noMatch')} />
         </div>
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {list.map((p) => (
-            <ProjectCard key={p.id} p={p} onEdit={() => openEdit(p)} onToggle={() => toggleFeatured(p)} onDelete={() => remove(p)} />
+            <ProjectCard key={p.id} p={p} canEdit={canEdit} canDelete={canDelete} onEdit={() => openEdit(p)} onToggle={() => toggleFeatured(p)} onDelete={() => remove(p)} />
           ))}
-          {filter === 'all' && !q && (
+          {filter === 'all' && !q && canEdit && (
             <button
               type="button"
               onClick={openNew}
-              className="group flex min-h-[280px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-line bg-white/40 p-6 text-center transition hover:border-brand-600/40 hover:bg-white"
+              className="group flex min-h-[260px] flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-ink/20 bg-white/50 p-6 text-center transition hover:border-ink/40 hover:bg-white"
             >
-              <span className="grid h-12 w-12 place-items-center rounded-full bg-white text-ink-soft ring-1 ring-line transition group-hover:bg-brand-600 group-hover:text-white group-hover:ring-brand-600">
+              <span className="grid h-11 w-11 place-items-center rounded-full bg-white text-ink-soft ring-1 ring-line transition group-hover:bg-ink group-hover:text-white group-hover:ring-ink">
                 <Plus className="h-5 w-5" />
               </span>
-              <span className="text-[14.5px] font-semibold text-ink">{t('addCard')}</span>
-              <span className="text-[13px] text-muted">{t('addCardText')}</span>
+              <span className="text-[14px] font-semibold text-ink">{t('addCard')}</span>
+              <span className="text-[12.5px] text-muted">{t('addCardText')}</span>
             </button>
           )}
         </div>
@@ -291,15 +343,17 @@ export default function ProjectsAdmin() {
       <ProjectModal
         project={editing}
         isNew={isNew}
+        canEdit={canEdit}
+        canDelete={canDelete}
         suggestions={allTags.map(([, v]) => v.tag)}
-        onClose={() => setEditing(null)}
+        onClose={close}
         onSave={(p) => {
           upsertProject(p);
           toast.success(isNew ? t('created') : t('saved'), { description: l(p.title) });
-          setEditing(null);
+          close();
         }}
         onDelete={async (p) => {
-          if (await remove(p)) setEditing(null);
+          if (await remove(p)) close();
         }}
       />
     </div>
@@ -309,67 +363,63 @@ export default function ProjectsAdmin() {
 /* ------------------------------------------------------------------ */
 /* Card                                                                */
 /* ------------------------------------------------------------------ */
-function ProjectCard({ p, onEdit, onToggle, onDelete }: { p: Project; onEdit: () => void; onToggle: () => void; onDelete: () => void }) {
+function ProjectCard({ p, canEdit, canDelete, onEdit, onToggle, onDelete }: { p: Project; canEdit: boolean; canDelete: boolean; onEdit: () => void; onToggle: () => void; onDelete: () => void }) {
   const t = useDict(T, 'admin');
   const ta = useDict(adm, 'admin');
+  const tc = useDict(cx, 'admin');
   const l = useL('admin');
   return (
     <article
       onClick={onEdit}
-      className="group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(28_26_23/0.04)] transition-[box-shadow,transform] duration-300 hover:-translate-y-0.5 hover:shadow-[0_18px_40px_-24px_rgb(28_26_23/0.35)]"
+      className="group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-shadow hover:shadow-[0_10px_30px_-18px_rgb(0_0_0/0.35)]"
     >
-      <div className="relative aspect-[4/3] overflow-hidden bg-sand">
+      <div className="relative aspect-[4/3] overflow-hidden bg-canvas">
         {p.image ? (
-          <Img small src={p.image} alt={l(p.title)} className="h-full w-full object-cover duration-700 group-hover:scale-[1.04]" />
+          <Img small src={p.image} alt={l(p.title)} className="h-full w-full object-cover duration-700 group-hover:scale-[1.03]" />
         ) : (
           <span className="grid h-full w-full place-items-center text-muted">
             <ImageOff className="h-6 w-6" />
           </span>
         )}
-        <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-          title={p.featured ? t('featureRemove') : t('featureAdd')}
-          aria-label={p.featured ? t('featureRemove') : t('featureAdd')}
-          aria-pressed={p.featured}
-          className={cn(
-            'absolute right-3 top-3 inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[11.5px] font-bold shadow-sm backdrop-blur transition',
-            p.featured ? 'bg-white/95 text-amber-700 hover:bg-white' : 'w-8 justify-center bg-white/80 px-0 text-ink-soft hover:bg-white hover:text-amber-600',
-          )}
-        >
-          <Star className={cn('h-4 w-4 transition-transform group-hover:scale-110', p.featured && 'fill-amber-400 text-amber-500')} />
-          {p.featured && t('featuredBadge')}
-        </button>
-        <span className="absolute bottom-3 left-3 rounded-full bg-ink/75 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">{p.year}</span>
+        {p.featured && (
+          <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-ink/85 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
+            <Star className="h-3 w-3 fill-current" />
+            {t('featuredBadge')}
+          </span>
+        )}
       </div>
-      <div className="flex flex-1 flex-col p-4">
-        <div className="flex items-center gap-1.5 text-[12px] font-semibold text-muted">
-          <MapPin className="h-3.5 w-3.5 text-brand-600" />
-          {p.location} · {p.year}
+      <div className="flex flex-1 flex-col p-3.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1 text-[12px] text-muted">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">
+                {p.location} · {p.year}
+              </span>
+            </div>
+            <h3 className="mt-1 line-clamp-2 text-[14.5px] font-semibold leading-snug text-ink">{l(p.title)}</h3>
+          </div>
+          <span onClick={(e) => e.stopPropagation()} className="-mr-1 -mt-0.5">
+            <ActionMenu
+              label={ta('actions')}
+              items={[
+                { label: canEdit ? ta('edit') : ta('preview'), icon: Pencil, onSelect: onEdit },
+                { label: p.featured ? t('featureRemove') : t('featureAdd'), icon: p.featured ? StarOff : Star, onSelect: onToggle, disabled: !canEdit },
+                { label: ta('delete'), icon: Trash2, onSelect: onDelete, danger: true, divider: true, disabled: !canDelete, title: canDelete ? undefined : tc('noDeletePerm') },
+              ]}
+            />
+          </span>
         </div>
-        <h3 className="mt-1.5 line-clamp-2 text-[15.5px] font-bold leading-snug text-ink">{l(p.title)}</h3>
-        <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-muted">{l(p.summary)}</p>
-        <div className="mt-auto flex items-end justify-between gap-3 pt-4">
-          <div className="flex min-w-0 flex-wrap gap-1.5">
+        <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-muted">{l(p.summary)}</p>
+        {p.tags.length > 0 && (
+          <div className="mt-auto flex flex-wrap gap-1 pt-3">
             {p.tags.map((tag, i) => (
-              <span key={i} className="rounded-full bg-sand px-2.5 py-0.5 text-[11.5px] font-semibold text-ink-soft">
+              <span key={i} className="rounded-md bg-ink/[0.05] px-1.5 py-0.5 text-[11.5px] font-medium text-ink-soft">
                 {l(tag)}
               </span>
             ))}
           </div>
-          <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-            <button type="button" onClick={onEdit} className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-canvas hover:text-ink" title={ta('edit')} aria-label={ta('edit')}>
-              <Pencil className="h-4 w-4" />
-            </button>
-            <button type="button" onClick={onDelete} className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-red-50 hover:text-red-600" title={ta('delete')} aria-label={ta('delete')}>
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+        )}
       </div>
     </article>
   );
@@ -381,6 +431,8 @@ function ProjectCard({ p, onEdit, onToggle, onDelete }: { p: Project; onEdit: ()
 function ProjectModal({
   project,
   isNew,
+  canEdit,
+  canDelete,
   suggestions,
   onClose,
   onSave,
@@ -388,6 +440,8 @@ function ProjectModal({
 }: {
   project: Project | null;
   isNew: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   suggestions: L10n[];
   onClose: () => void;
   onSave: (p: Project) => void;
@@ -396,6 +450,7 @@ function ProjectModal({
   const t = useDict(T, 'admin');
   const ta = useDict(adm, 'admin');
   const te = useDict(ed, 'admin');
+  const tc = useDict(cx, 'admin');
   const settings = useDb((s) => s.settings);
   const cityList = useMemo(() => allCities(settings), [settings]);
   const [draft, setDraft] = useState<Project | null>(project);
@@ -426,7 +481,7 @@ function ProjectModal({
   const hasErrors = Object.values(errors).some(Boolean);
 
   const submit = () => {
-    if (!d) return;
+    if (!d || !canEdit) return;
     if (hasErrors) {
       setShowErrors(true);
       toast.error(te('fixErrors'));
@@ -446,16 +501,20 @@ function ProjectModal({
         d && (
           <>
             {!isNew && (
-              <Button variant="ghost" shape="rounded" size="sm" className="mr-auto text-red-600 hover:bg-red-50" icon={<Trash2 className="h-4 w-4" />} onClick={() => onDelete(d)}>
-                {ta('delete')}
-              </Button>
+              <span className="mr-auto" title={canDelete ? undefined : tc('noDeletePerm')}>
+                <Button variant="ghost" shape="rounded" size="sm" className="text-red-600 hover:bg-red-50" icon={<Trash2 className="h-4 w-4" />} disabled={!canDelete} onClick={() => onDelete(d)}>
+                  {ta('delete')}
+                </Button>
+              </span>
             )}
             <Button variant="outline" shape="rounded" size="sm" onClick={onClose}>
-              {ta('cancel')}
+              {canEdit ? ta('cancel') : ta('close')}
             </Button>
-            <Button shape="rounded" size="sm" onClick={submit}>
-              {isNew ? ta('create') : ta('save')}
-            </Button>
+            {canEdit && (
+              <Button shape="rounded" size="sm" onClick={submit}>
+                {isNew ? ta('create') : ta('save')}
+              </Button>
+            )}
           </>
         )
       }
@@ -468,7 +527,7 @@ function ProjectModal({
             submit();
           }}
         >
-          <div className="min-w-0 space-y-5">
+          <fieldset disabled={!canEdit} className="min-w-0 space-y-5">
             <div>
               <L10nInput label={t('fTitle')} value={d.title} onChange={(title) => patch({ title })} placeholder={t('fTitlePh')} required />
               {showErrors && errors.title && <p className="mt-1.5 text-xs font-medium text-red-600">{errors.title}</p>}
@@ -504,17 +563,17 @@ function ProjectModal({
             </div>
             <TagsEditor value={d.tags} onChange={(tags) => patch({ tags })} suggestions={suggestions} />
             <button type="submit" className="hidden" aria-hidden tabIndex={-1} />
-          </div>
+          </fieldset>
 
-          <div className="space-y-5">
+          <fieldset disabled={!canEdit} className="space-y-5">
             <div>
-              <ImageField label={<span>{t('fImage')} <span className="text-brand-600">*</span></span>} value={d.image} onChange={(image) => patch({ image })} aspect="aspect-[4/3]" hint={t('fImageHint')} />
+              <ImageField label={<span>{t('fImage')} <span className="text-ink">*</span></span>} value={d.image} onChange={(image) => patch({ image })} aspect="aspect-[4/3]" hint={t('fImageHint')} />
               {showErrors && errors.image && <p className="mt-1.5 text-xs font-medium text-red-600">{errors.image}</p>}
             </div>
-            <div className="rounded-xl border border-line/80 bg-canvas/40 p-3.5">
-              <SwitchRow icon={<Star className={cn('h-4 w-4', d.featured && 'fill-amber-400 text-amber-500')} />} label={t('fFeatured')} hint={t('fFeaturedHint')} checked={d.featured} onChange={(featured) => patch({ featured })} />
+            <div className={cn('rounded-lg border border-line/80 bg-canvas/40 p-3.5')}>
+              <SwitchRow icon={<Star className={cn('h-4 w-4', d.featured && 'fill-current')} />} label={t('fFeatured')} hint={t('fFeaturedHint')} checked={d.featured} onChange={(featured) => patch({ featured })} />
             </div>
-          </div>
+          </fieldset>
         </form>
       )}
     </Modal>

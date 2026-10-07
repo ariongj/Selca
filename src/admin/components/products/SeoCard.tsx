@@ -1,6 +1,6 @@
 import { Globe, Link2, RotateCcw } from 'lucide-react';
 import { Card } from '@/admin/components/kit';
-import { Textarea } from '@/components/ui/Field';
+import { Checkbox, Textarea } from '@/components/ui/Field';
 import { useDict, useLang } from '@/i18n';
 import { useDb } from '@/store/db';
 import type { Product } from '@/lib/types';
@@ -16,7 +16,26 @@ function Counter({ n, max }: { n: number; max: number }) {
 
 const GOOGLE_FONT = { fontFamily: 'arial, sans-serif' };
 
-export function SeoCard({ draft, slugAuto, onSlug, onResetSlug, onSeo }: { draft: Product; slugAuto: boolean; onSlug: (slug: string) => void; onResetSlug: () => void; onSeo: (seo: { title?: string; description?: string }) => void }) {
+export function SeoCard({
+  draft,
+  slugAuto,
+  onSlug,
+  onResetSlug,
+  onSeo,
+  redirectFrom,
+  redirect,
+  onRedirect,
+}: {
+  draft: Product;
+  slugAuto: boolean;
+  onSlug: (slug: string) => void;
+  onResetSlug: () => void;
+  onSeo: (seo: { title?: string; description?: string }) => void;
+  /** previous published URL handle when it was changed (p.10 "ridrejtim kur ndryshon URL") */
+  redirectFrom?: string;
+  redirect?: boolean;
+  onRedirect?: (v: boolean) => void;
+}) {
   const t = useDict(pd, 'admin');
   const lang = useLang('admin');
   const adminEmail = useDb((s) => s.settings.adminEmail);
@@ -24,7 +43,7 @@ export function SeoCard({ draft, slugAuto, onSlug, onResetSlug, onSeo }: { draft
   const domain = adminEmail.split('@')[1] || 'selca.me';
   const seo = draft.seo ?? {};
   // Mirrors the storefront <title>: "{name} — {company}" (see usePageTitle).
-  const autoTitle = `${draft.name.me.trim() || t('f_name')} — ${company}`;
+  const autoTitle = `${draft.name.me.trim() || t('f_title')} — ${company}`;
   const title = seo.title?.trim() || autoTitle;
   const autoDesc = draft.short.me.trim() || draft.description.me.trim();
   const desc = seo.description?.trim() || autoDesc;
@@ -65,6 +84,11 @@ export function SeoCard({ draft, slugAuto, onSlug, onResetSlug, onSeo }: { draft
             spellCheck={false}
             aria-label={t('f_slug')}
           />
+          {redirectFrom && onRedirect && (
+            <div className="mt-2.5 rounded-lg bg-canvas px-3 py-2.5">
+              <Checkbox checked={!!redirect} onChange={onRedirect} label={<span className="text-[13px]">{t('redirect', { old: redirectFrom })}</span>} description={t('redirect_h')} />
+            </div>
+          )}
         </FormField>
         <FormField label={t('f_metaTitle')} hint={t('f_metaTitle_h')} aside={<Counter n={(seo.title ?? '').length} max={60} />}>
           <TextInput value={seo.title ?? ''} placeholder={autoTitle} onChange={(e) => onSeo({ ...seo, title: e.target.value })} aria-label={t('f_metaTitle')} />

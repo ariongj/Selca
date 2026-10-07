@@ -1,16 +1,82 @@
 import { useEffect, useRef, useState, type ComponentType, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { Check, ChevronDown, Ellipsis, Infinity as InfinityIcon, Minus } from 'lucide-react';
+import { AlertTriangle, Archive, Check, ChevronDown, CircleDashed, Ellipsis, Infinity as InfinityIcon, Minus, XCircle } from 'lucide-react';
 import { Label, Hint, FieldError, Switch } from '@/components/ui/Field';
 import { Badge } from '@/components/ui/misc';
 import { useDict, useLang } from '@/i18n';
 import { common } from '@/i18n/common';
-import type { L10n, Lang, Product } from '@/lib/types';
+import type { L10n, Lang, Product, ProductStatus } from '@/lib/types';
 import { discountPct } from '@/lib/pricing';
 import { num, unitLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { pd } from './dict';
+import { LOW_STOCK, isTracked, variantCount, type ProductX } from './model';
+
+/* ------------------------------------------------------------------ */
+/* Status — text + symbol, never colour alone (PDF p.07)               */
+/* ------------------------------------------------------------------ */
+export function StatusLabel({ status, className }: { status: ProductStatus; className?: string }) {
+  const t = useDict(pd, 'admin');
+  const base = 'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[12px] font-semibold';
+  if (status === 'active')
+    return (
+      <span className={cn(base, 'bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-700/15', className)}>
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" aria-hidden />
+        {t('st_active')}
+      </span>
+    );
+  if (status === 'draft')
+    return (
+      <span className={cn(base, 'bg-ink/[0.06] text-ink-soft', className)}>
+        <CircleDashed className="h-3 w-3" aria-hidden />
+        {t('st_draft')}
+      </span>
+    );
+  return (
+    <span className={cn(base, 'bg-white text-muted ring-1 ring-inset ring-line', className)}>
+      <Archive className="h-3 w-3" aria-hidden />
+      {t('st_archived')}
+    </span>
+  );
+}
+
+/** "36 në 2 variante" (PDF p.12) — or "14 copë", "Me porosi", with a symbol for low / out of stock. */
+export function InventoryCell({ product, className }: { product: ProductX; className?: string }) {
+  const t = useDict(pd, 'admin');
+  const lang = useLang('admin');
+  const v = variantCount(product);
+  if (!isTracked(product))
+    return (
+      <span className={cn('inline-flex items-center gap-1.5 whitespace-nowrap text-muted', className)}>
+        <InfinityIcon className="h-3.5 w-3.5" aria-hidden />
+        {t('madeToOrder')}
+        {v > 1 && <span className="text-[12px]">· {t('variantsN', { n: v })}</span>}
+      </span>
+    );
+  const s = product.stock;
+  const unit = product.unit === 'm2' ? t('packsUnit') : unitLabel(product.unit, lang);
+  const text = v > 0 ? t(v === 1 ? 'inv_in_one' : 'inv_in_many', { n: num(s, lang), v }) : `${num(s, lang)} ${unit}`;
+  const out = s <= 0;
+  const low = !out && s <= LOW_STOCK;
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums', out ? 'text-red-700' : low ? 'text-amber-800' : 'text-ink', className)} title={out ? t('outOfStock') : low ? t('lowStock') : undefined}>
+      {out ? <XCircle className="h-3.5 w-3.5" aria-hidden /> : low ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden /> : null}
+      {text}
+      {(out || low) && <span className="sr-only">({out ? t('outOfStock') : t('lowStock')})</span>}
+    </span>
+  );
+}
+
+/** Wrap a control the current role may not use: keeps it visible, disabled, with the reason as tooltip. */
+export function PermWrap({ ok, reason, children, className }: { ok: boolean; reason: string; children: ReactNode; className?: string }) {
+  if (ok) return <>{children}</>;
+  return (
+    <span title={reason} className={cn('inline-flex cursor-not-allowed', className)}>
+      {children}
+    </span>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* Compact admin form controls (h-10, rounded-lg — matches L10nInput)  */
@@ -326,7 +392,7 @@ export function AdminBadges({ product, className, empty }: { product: Product; c
 /* ------------------------------------------------------------------ */
 /* Dropdown menu (portal — never clipped by scrolling tables)          */
 /* ------------------------------------------------------------------ */
-export type MenuItem = { label: string; icon: ComponentType<{ className?: string }>; onSelect: () => void; danger?: boolean; divider?: boolean };
+export type MenuItem = { label: string; icon: ComponentType<{ className?: string }>; onSelect: () => void; danger?: boolean; divider?: boolean; disabled?: boolean; hint?: string };
 
 export function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
   const [pos, setPos] = useState<{ x: number; y: number; up: boolean } | null>(null);
@@ -397,13 +463,15 @@ export function RowMenu({ items, label }: { items: MenuItem[]; label: string }) 
                   <button
                     type="button"
                     role="menuitem"
+                    disabled={it.disabled}
+                    title={it.disabled ? it.hint : undefined}
                     onClick={() => {
                       setPos(null);
                       it.onSelect();
                     }}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13.5px] font-medium transition-colors',
-                      it.danger ? 'text-red-600 hover:bg-red-50' : 'text-ink hover:bg-canvas',
+                      'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+                      it.danger ? 'text-red-600 enabled:hover:bg-red-50' : 'text-ink enabled:hover:bg-canvas',
                     )}
                   >
                     <it.icon className={cn('h-4 w-4', it.danger ? 'text-red-500' : 'text-muted')} />

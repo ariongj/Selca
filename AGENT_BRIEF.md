@@ -29,7 +29,7 @@ display headings with *italic accent* words. Admin style: `bg-canvas`, white `Ca
 - `@/components/ui/Markdown`: `<Markdown source=... />` (## headings, lists, > quotes, **bold**, [links](/x)).
 - `@/components/brand/Logo` (`Logo`, `LogoMark`, tone dark|light), `@/components/brand/Social` (Instagram/Facebook/WhatsApp/Viber icons), `@/components/LangSwitcher`.
 - Storefront: `@/site/components/ProductCard` (`ProductCard`, `ProductBadges`), `@/site/components/Price` (`Price`, `hasPriceRange`), `@/site/components/SectionHeading` (`SectionHeading`, `Breadcrumbs`, `PageHero`), `@/site/components/MeasureForm` (`MeasureForm` type measurement|quote|contact → creates an inquiry in the CMS), `usePageTitle(title)` from `@/site/layout/SiteLayout`.
-- Admin kit `@/admin/components/kit`: `PageHeader` (title, description, actions, back, badge), `Card` (title, description, actions, padded, bodyClassName), `Table`/`Th`/`Td`/`Tr`, `SearchInput`, `FilterPills`, `OrderStatusBadge`, `PaymentStatusBadge`, `InquiryStatusBadge`, `ORDER_STATUS_TONE`, `SaveBar` (dirty, onSave, onDiscard), `confirmDialog({title,text,confirmLabel,danger})` → Promise<boolean>, `KV`, `Thumb`.
+- Admin kit `@/admin/components/kit`: `PageHeader` (title, description, actions, back, badge, **breadcrumbs** — see "CMS v2 shell"), `Card` (title, description, actions, padded, bodyClassName), `Table`/`Th`/`Td`/`Tr`, `SearchInput`, `FilterPills`, `OrderStatusBadge`, `PaymentStatusBadge`, `InquiryStatusBadge`, `ORDER_STATUS_TONE`, `SaveBar` (dirty, onSave, onDiscard), `confirmDialog({title,text,confirmLabel,danger})` → Promise<boolean>, `KV`, `Thumb`.
 - `@/admin/components/L10nInput`: `L10nInput` (label, value: L10n, onChange, multiline, rows, hint) — one field with ME/SQ/EN tabs.
 - `@/admin/components/media`: `ImageField` (single image: media library + upload), `GalleryField` (multi, drag reorder, first = cover), `MediaPicker`, `Dropzone`, `useUploader()`, `compressImage()`.
 
@@ -118,9 +118,23 @@ roles & permissions and a separate settings space. The storefront (public site) 
   Përmbajtja, Tregjet, Analitika, Kontaktet, Terminet, Online Store, Integrime, Konfigurimet, Çmimi referues, Kosto / copë, …).
 
 ## Raw URLs and the GitHub Pages build
-The app is also deployed under a sub-path (`https://<user>.github.io/Selca/`). Never hard-code absolute URLs in raw `<a href>`,
-`<iframe src>`, `window.open()` or `location.href` — use `href('/admin/…')` from `@/lib/paths` (react-router `<Link>`/`navigate`
+The app is also deployed under a sub-path (live: `https://ariongj.github.io/Selca/`). Never hard-code absolute URLs in raw `<a href>`,
+`<iframe src>`, `window.open()` or `location.href` — use `href(/admin/…)` from `@/lib/paths` (react-router `<Link>`/`navigate`
 already handle the base). Image paths like `/images/...` inside data are rewritten automatically at build time; in JSX use them as-is.
+
+    import { href, asset, appPath } from @/lib/paths;
+    <a href={href(`/proizvod/${p.slug}`)} target="_blank" rel="noreferrer">…</a>   // → /Selca/proizvod/… on Pages, /proizvod/… at root
+    window.open(href(`/admin/faktura/${order.id}`), _blank, noopener);
+    <iframe src={href(/?preview=1)} />                                         // homepage draft preview
+    asset(/favicon.svg)            // public-folder file outside the /images/ rewrite
+    appPath(location.pathname)       // strip the base from a raw pathname
+
+- Build: `vite.config.ts` reads `BASE_PATH` (default `/`); the `selca-base-images` plugin prefixes every `/images/…` string literal
+  in `src/**/*.ts(x)` with the base at build time (also `startsWith(/images/)` checks, so they keep matching).
+  Router basename = `BASENAME` from `@/lib/paths` (`import.meta.env.BASE_URL` without the trailing slash).
+- Deploy: `.github/workflows/pages.yml` builds on push to `main` with `BASE_PATH=/Selca/`, copies `dist/index.html` → `dist/404.html`
+  (SPA deep links) + `.nojekyll`, deploys with `actions/deploy-pages`. Root deployments keep `vercel.json` / `public/_redirects`.
+- A CSS selector that matches a link must not assume the root: `a[href$="/admin"]`, not `a[href="/admin"]`.
 
 ---
 
@@ -186,3 +200,90 @@ Placements `pl-s1…s3` (live hero), `pl-s4` (scheduled), `pl-s5` (draft), `pl-b
 Segments `seg-vip`, `seg-povratni`, `seg-primorje`, `seg-shqip`. POs `po-014` (partial), `po-015` (sent). Drafts `dr-1001`, `dr-1002`.
 Returns `rt-1001` (refunded), `rt-1002` (requested). Quotes `q-031` (sent, from inquiry `inq_120`), `q-032` (draft). Menus `menu-main`,
 `menu-footer`. Content models `cm-projekti`, `cm-faq`, `cm-usluge`, `cm-lokacije`. Locations `loc-pg`, `loc-tz`. Archived product `p-statuario`.
+
+---
+
+# CMS v2 shell (foundation part 2 — layout, routes, theme)
+
+**Shell** (`src/admin/layout/*`, PDF p.07/08/12): fixed dark top bar `#1A1A1A`, 56 px (`CMS` + SELCA mark · global search →
+command palette `Ctrl/⌘+K` · "Shiko si: …" chip when the role is not owner · store label → site · ME/SQ/EN · notifications ·
+account menu with the role switcher + logout); light sidebar `#EBEBEB`, **240 px**, white-pill active item, sub-items expand under the
+active parent, badges = unseen orders / new contacts / pending bookings; drawer under `lg`. Work area `#F1F1F1`, content
+`max-w-[1320px] px-4 sm:px-6 lg:px-8`, top padding already applied — a page starts directly with `<PageHeader>`.
+- Files: `AdminLayout.tsx` (shell), `Sidebar.tsx`, `nav.ts` (**single source of truth**: sidebar, palette screens, tab title —
+  add a screen here + in `App.tsx`), `CommandPalette.tsx`, `Notifications.tsx` (+ `useNewOrderToasts`), `AccountMenu.tsx`,
+  `AdminLangToggle.tsx`, `RequirePerm.tsx` + `NoAccess.tsx`, `popover.ts` (`useDismiss`, `useScrollLock`, `MOD_KEY`, `DROPDOWN`).
+- Neutral theme: `setAdminTheme(on)` (`src/lib/color.ts`) runs from `Root` in `App.tsx` for every path starting with `/admin`
+  (login + invoice included). It sets `html[data-admin]`, remaps `brand-50…900` to greys (600 `#1A1A1A`, 700 `#000`) and the warm tokens
+  (`ink`, `muted`, `paper`, `sand`, `line`, `canvas #F1F1F1`) to neutral ones; leaving `/admin` restores the SELCA brand. So in the CMS
+  `bg-brand-600`, `Button variant="primary"`, `Badge tone="brand"` are black/grey automatically — **never** hard-code SELCA red there.
+  Need the storefront red inside the CMS (a storefront preview card)? `style={brandVars(settings.brandColor)}` on the wrapper.
+- `cn()` is plain `clsx` (no tailwind-merge): a `className` you pass does NOT override a conflicting class inside a component
+  (`h-11` + `h-8` → undefined winner). Wrap the component or give it a prop instead.
+- Admin type scale: body 14 px; tables 13.5 px; screen titles 22–26 px (PageHeader); cards `rounded-xl` (Card does it).
+- `SaveBar` is a dark bar with a white "Ruaj" button, centred on the work area (`lg:left-[calc(50%+120px)]`).
+
+**PageHeader breadcrumbs** (PDF p.12 "Produktet / Të gjitha"). All old props keep working.
+
+    import { PageHeader, type Crumb } from '@/admin/components/kit';
+    const ta = useDict(adm, 'admin');
+    <PageHeader breadcrumbs={[ta('nav_products'), ta('all')]} title={ta('nav_products')} actions={<Button …/>} />
+    // a crumb can link back:  { label: ta('nav_offers'), to: '/admin/ponude' }
+    <PageHeader back="/admin/ponude" breadcrumbs={[{ label: ta('nav_offers'), to: '/admin/ponude' }, l(offer.name)]} title={l(offer.name)} badge={<Badge …/>} />
+
+With `breadcrumbs`, `back` renders as a small ← icon in front of the trail; without them it is the old "← Kthehu" link. Use the `nav_*`
+keys of the `adm` dict for module names so the trail matches the sidebar.
+
+**Roles & permissions for page builders** (PDF p.42). Routes are already wrapped in `<RequirePerm module=…>` (view) — a role without
+access sees "Nuk keni leje". Inside a page, gate actions with the hook (re-renders when the role switcher changes):
+
+    const can = useCan();                                   // from '@/store/hooks'
+    {can('discounts', 'publish') ? <Button>Aktivizo</Button> : <Badge tone="amber" dot>Pret miratimin</Badge>}
+    {can('products', 'viewCost') && <Input label="Kosto / copë" … />}
+    <Button disabled={!can('orders', 'refund')}>Rimburso</Button>
+    // inside a route element: <RequirePerm module="settings" action="edit">…</RequirePerm>
+
+Actions: `view edit publish archive delete import export viewCost refund cancel`. The demo role lives in `useUi().adminRole`
+(switcher in the account menu; `useCurrentStaff()` = the staff member acting). Hide what a role can't do rather than erroring;
+marketing *prepares* offers/discounts (edit) but cannot `publish`.
+
+**Route map** (`src/App.tsx`, all under `RequireAuth` + `AdminLayout` + `RequirePerm`; pages are lazy, default export).
+Stub = one-line placeholder file waiting for its builder.
+
+| URL | Page file (`src/admin/pages/`) | module |
+|---|---|---|
+| `/admin` | Dashboard | overview |
+| `/admin/narudzbe`, `/admin/narudzbe/:id` | Orders, OrderDetail | orders |
+| `/admin/nacrti`, `/admin/nacrti/:id` (`novi` = new) | DraftOrders (stub), DraftOrderEdit (stub) | drafts |
+| `/admin/povrati` | Returns (stub) | returns |
+| `/admin/proizvodi`, `/admin/proizvodi/novi`, `/admin/proizvodi/:id` | Products, ProductEdit | products |
+| `/admin/kolekcije`, `/admin/kolekcije/:id` (`novi`) | Collections (stub), CollectionEdit (stub) | collections |
+| `/admin/kategorije` | Categories | products |
+| `/admin/inventar` | Inventory (stub) | inventory |
+| `/admin/nabavke` | PurchaseOrders (stub) | purchasing |
+| `/admin/kupci` (`?c=<customer key>`, `?q=`) | Customers | customers |
+| `/admin/segmenti` | Segments (stub) | segments |
+| `/admin/ponude`, `/admin/ponude/:id` | Offers (stub), OfferEdit (stub) | offers |
+| `/admin/popusti`, `/admin/popusti/:id` | Discounts (stub), DiscountEdit (stub) | discounts |
+| `/admin/stranice[/:id]`, `/admin/savjeti[/:id]`, `/admin/projekti` | Pages, PageEdit, Posts, PostEdit, ProjectsAdmin | content |
+| `/admin/meniji`, `/admin/modeli`, `/admin/mediji` | Menus (stub), ContentModels (stub), Media | content |
+| `/admin/trzista` | Markets (stub) | markets |
+| `/admin/analitika` | Analytics (stub) | analytics |
+| `/admin/kontakti` (`?id=<inquiry>`) | Inquiries (contacts inbox) | contacts |
+| `/admin/kontakti/ponude` | Quotes (stub) | quotes |
+| `/admin/termini` (`?id=<booking>`), `/admin/termini/usluge` | Appointments (stub), AppointmentServices (stub) | appointments |
+| `/admin/prodavnica` | OnlineStore (stub — "Tema") | onlineStore |
+| `/admin/prodavnica/editor` | ContentEditor (homepage builder) | onlineStore |
+| `/admin/prodavnica/slajdovi`, `/admin/prodavnica/slajdovi/:id` | Slides (stub), SlideEdit (stub) | onlineStore |
+| `/admin/integracije` | Integrations (stub) | integrations |
+| `/admin/konfiguracija`, `/admin/konfiguracija/:section` | SettingsPage (read `useParams().section`) | settings |
+| `/admin/moduli` | ModuleMap (stub) | — (everyone) |
+| `/admin/faktura/:id` | Invoice — outside the shell (print) | — |
+
+Redirects (query kept): `/admin/upiti → /admin/kontakti`, `/admin/sadrzaj → /admin/prodavnica/editor`, `/admin/kuponi → /admin/popusti`,
+`/admin/postavke → /admin/konfiguracija`; any other `/admin/*` → `/admin`. Storefront additions: `/kolekcija/:slug` (CollectionPage, stub)
+and `/oferta/:slug` (OfferPage, stub) in `src/site/pages/`. Homepage `/?preview=1` renders `homeDraft ?? home` (builder iframe);
+the published home otherwise.
+
+Deep links other screens may rely on: notifications/palette open `/admin/narudzbe/:id`, `/admin/kontakti?id=…`, `/admin/termini?id=…`,
+`/admin/ponude/:id`, `/admin/kolekcije/:id`, `/admin/kupci?c=…` — keep those params working when you build the page.

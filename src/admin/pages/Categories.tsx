@@ -15,6 +15,7 @@ import { useDb } from '@/store/db';
 import { useCategories } from '@/store/hooks';
 import type { Category } from '@/lib/types';
 import { cn, thumb } from '@/lib/utils';
+import { href } from '@/lib/paths';
 
 const T = defineDict({
   me: {
@@ -256,7 +257,7 @@ export default function Categories() {
                             {l(c.name)}
                           </button>
                           <a
-                            href={`/proizvodi/${c.slug}`}
+                            href={href(`/proizvodi/${c.slug}`)}
                             target="_blank"
                             rel="noreferrer"
                             title={t('openOnSite')}
@@ -316,7 +317,7 @@ function HomePreview({ cats, flash }: { cats: Category[]; flash: string | null }
       description={t('previewText')}
       className="xl:sticky xl:top-24"
       actions={
-        <a href="/" target="_blank" rel="noreferrer" title={t('previewLink')} aria-label={t('previewLink')} className="grid h-8 w-8 place-items-center rounded-lg text-muted transition hover:bg-canvas hover:text-ink">
+        <a href={href('/')} target="_blank" rel="noreferrer" title={t('previewLink')} aria-label={t('previewLink')} className="grid h-8 w-8 place-items-center rounded-lg text-muted transition hover:bg-canvas hover:text-ink">
           <ExternalLink className="h-4 w-4" />
         </a>
       }

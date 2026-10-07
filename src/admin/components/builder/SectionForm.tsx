@@ -114,6 +114,7 @@ function HeroForm({ data, set }: { data: DataOf<'hero'>; set: SetData<'hero'> })
           )}
         />
       </Group>
+      <SourceNote text={t('heroSlidesNote')} to="/admin/prodavnica/slajdovi" linkLabel={t('openSlides')} />
     </Stack>
   );
 }
@@ -385,7 +386,7 @@ function InstagramForm({ data, set }: { data: DataOf<'instagram'>; set: SetData<
       <Group title={t('photos')}>
         <GalleryField value={data.images} onChange={(images) => set({ ...data, images })} />
         <p className="-mt-2 text-xs text-muted">{t('photosHint')}</p>
-        <SourceNote text={t('src_instagram')} to="/admin/postavke" linkLabel={t('openSettings')} />
+        <SourceNote text={t('src_instagram')} to="/admin/konfiguracija" linkLabel={t('openSettings')} />
       </Group>
     </Stack>
   );
@@ -404,7 +405,7 @@ function CtaForm({ data, set }: { data: DataOf<'cta'>; set: SetData<'cta'> }) {
       <Group title={t('grpImage')}>
         <ImageField value={data.image} onChange={(image) => set({ ...data, image })} aspect="aspect-[16/10]" />
       </Group>
-      <SourceNote text={t('src_cta')} to="/admin/upiti" linkLabel={t('openInquiries')} />
+      <SourceNote text={t('src_cta')} to="/admin/kontakti" linkLabel={t('openInquiries')} />
     </Stack>
   );
 }

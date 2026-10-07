@@ -1,370 +1,616 @@
-import { useState, type ComponentType, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
-import { CalendarCheck2, CalendarClock, CheckCircle2, Clock, ExternalLink, Mail, MapPin, MessageSquareText, Phone, PhoneCall, StickyNote, Trash2, Wrench } from 'lucide-react';
+import { ArrowUpRight, Ban, CheckCircle2, Clock, Building2, CalendarClock, CalendarPlus, Copy, ExternalLink, FileText, Lock, Mail, MapPin, Package, Phone, Trash2, UserRound, Wrench, XCircle } from 'lucide-react';
 import { Drawer } from '@/components/ui/Overlay';
 import { Button } from '@/components/ui/Button';
-import { Textarea } from '@/components/ui/Field';
 import { WhatsAppIcon } from '@/components/brand/Social';
-import { InquiryStatusBadge, Thumb, confirmDialog } from '@/admin/components/kit';
+import { Thumb, confirmDialog } from '@/admin/components/kit';
 import { defineDict, useDict, useL, useLang } from '@/i18n';
-import { common } from '@/i18n/common';
 import { useDb } from '@/store/db';
+import { useCan, useCurrentStaff } from '@/store/hooks';
 import { basePrice } from '@/lib/pricing';
 import { date, dateTime, money, perUnit } from '@/lib/format';
-import type { Inquiry, InquiryStatus, Product } from '@/lib/types';
+import { href } from '@/lib/paths';
+import type { InquiryStatus, Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { ContactAction, InquiryTypeIcon, crm, fromLocalInput, mailHref, parseDay, startOfDay, telHref, toLocalInput, waHref } from './shared';
+import { cx } from '@/admin/components/contacts/i18n';
+import { AssigneeLabel, DueLabel, KindLabel, QuoteStatusLabel, SectionTitle, StatusLabel, StatusSymbol, useNoPermText } from '@/admin/components/contacts/atoms';
+import { CSelect, Chip, Segmented } from '@/admin/components/contacts/fields';
+import { TagsField } from '@/admin/components/contacts/TagsField';
+import { Conversation } from '@/admin/components/contacts/Conversation';
+import { CustomerLink } from '@/admin/components/contacts/CustomerLink';
+import { BookingModal } from '@/admin/components/contacts/BookingModal';
+import { STATUSES, assignableStaff, bookingsFor, dueOf, kindOf, quoteState, sourceKey, sourceOf, sourcePath, type CustomerIndex, type InquiryX } from '@/admin/components/contacts/model';
+import { fromLocalInput, mailHref, parseDay, telHref, toLocalInput, useNow, waHref } from './shared';
 
 const T = defineDict({
   me: {
+    request: 'Upit',
     received: 'Primljeno {date}',
-    message: 'Poruka klijenta',
-    details: 'Detalji',
+    from: 'sa',
+    message: 'Poruka',
+    product: 'Proizvod',
     service: 'Usluga',
     preferred: 'Željeni datum',
-    product: 'Povezani proizvod',
-    openOnSite: 'Otvori na sajtu',
+    city: 'Grad',
     priceFrom: 'od {price}',
     onRequest: 'Cijena na upit',
-    statusTitle: 'Status',
-    act_contacted: 'Kontaktiran',
-    act_scheduled: 'Zakazano',
-    act_done: 'Završeno',
-    visitAt: 'Termin posjete',
-    visitHint: 'Klijent je naveo: {date}',
-    visitHintNone: 'Izaberite datum i vrijeme dolaska na mjerenje.',
+    manage: 'Obrada',
+    status: 'Status',
+    assignee: 'Odgovorni',
+    takeIt: 'Preuzmi',
+    followUp: 'Rok za praćenje',
+    noDue: 'Ukloni rok',
+    today17: 'Danas 17h',
+    tomorrow: 'Sjutra',
+    in3: '+3 dana',
+    week: '+1 sedmica',
+    tags: 'Oznake',
+    tagsPh: 'Dodaj oznaku i Enter…',
+    links: 'Termini i ponude',
+    linksEmpty: 'Još nema termina ni B2B ponude za ovaj upit.',
+    open: 'Otvori',
+    customer: 'Profil kupca',
+    createBooking: 'Kreiraj termin',
+    createQuote: 'Kreiraj B2B ponudu',
+    openQuote: 'Otvori ponudu {number}',
     statusSaved: 'Status: {status}',
-    scheduledToast: 'Posjeta zakazana — {when}',
-    note: 'Interna bilješka',
-    notePh: 'Npr. dogovoreno mjerenje u 17h, ponijeti uzorke laminata…',
-    noteHint: 'Vidljivo samo administratorima.',
-    saveNote: 'Sačuvaj bilješku',
-    noteSaved: 'Bilješka je sačuvana',
-    delete: 'Obriši upit',
+    assigned: 'Dodijeljeno: {name}',
+    unassignedToast: 'Upit više nema odgovornog',
+    dupTitle: 'Mogući duplikat',
+    dupText: 'Isti telefon ili e-mail kao upit od {date} ({name}).',
+    dupOpen: 'Otvori original',
+    dupClose: 'Označi kao duplikat i zatvori',
+    dupClosed: 'Zatvoreno kao duplikat',
+    close: 'Zatvori upit',
+    reopen: 'Ponovo otvori',
+    spam: 'Označi kao spam',
+    spamDone: 'Označeno kao spam i zatvoreno',
+    delete: 'Obriši',
     deleteTitle: 'Obrisati ovaj upit?',
-    deleteText: 'Upit od {name} biće trajno uklonjen iz CMS-a.',
+    deleteText: 'Upit od {name} biće trajno uklonjen. Profil kupca i narudžbe ostaju.',
     deleted: 'Upit je obrisan',
+    archiveNote: 'Zatvaranje ili arhiviranje upita ne briše kupca.',
+    readOnly: 'Samo pregled',
     mailSubject: 'SELCA COMPANY — vaš upit',
+    bk_pending: 'Čeka potvrdu',
+    bk_confirmed: 'Potvrđen',
+    bk_done: 'Održan',
+    bk_cancelled: 'Otkazan',
+    bk_noshow: 'Nije došao',
   },
   sq: {
+    request: 'Kërkesa',
     received: 'Pranuar më {date}',
-    message: 'Mesazhi i klientit',
-    details: 'Detajet',
+    from: 'nga',
+    message: 'Mesazhi',
+    product: 'Produkti',
     service: 'Shërbimi',
     preferred: 'Data e dëshiruar',
-    product: 'Produkti i lidhur',
-    openOnSite: 'Hape në faqe',
+    city: 'Qyteti',
     priceFrom: 'nga {price}',
     onRequest: 'Çmimi sipas kërkesës',
-    statusTitle: 'Statusi',
-    act_contacted: 'U kontaktua',
-    act_scheduled: 'E caktuar',
-    act_done: 'E përfunduar',
-    visitAt: 'Termini i vizitës',
-    visitHint: 'Klienti ka kërkuar: {date}',
-    visitHintNone: 'Zgjidhni datën dhe orën e vizitës për matje.',
+    manage: 'Trajtimi',
+    status: 'Statusi',
+    assignee: 'Përgjegjësi',
+    takeIt: 'Merre vetë',
+    followUp: 'Afati i ndjekjes',
+    noDue: 'Hiq afatin',
+    today17: 'Sot 17:00',
+    tomorrow: 'Nesër',
+    in3: '+3 ditë',
+    week: '+1 javë',
+    tags: 'Etiketat',
+    tagsPh: 'Shto etiketë dhe Enter…',
+    links: 'Terminet & ofertat',
+    linksEmpty: 'Ende nuk ka termin as ofertë B2B për këtë kërkesë.',
+    open: 'Hap',
+    customer: 'Profili i klientit',
+    createBooking: 'Krijo termin',
+    createQuote: 'Krijo ofertë B2B',
+    openQuote: 'Hap ofertën {number}',
     statusSaved: 'Statusi: {status}',
-    scheduledToast: 'Vizita u caktua — {when}',
-    note: 'Shënim i brendshëm',
-    notePh: 'P.sh. matja e rënë dakord në ora 17, merrni mostrat e laminatit…',
-    noteHint: 'E dukshme vetëm për administratorët.',
-    saveNote: 'Ruaj shënimin',
-    noteSaved: 'Shënimi u ruajt',
-    delete: 'Fshij kërkesën',
+    assigned: 'U caktua: {name}',
+    unassignedToast: 'Kërkesa mbeti pa përgjegjës',
+    dupTitle: 'Dyfish i mundshëm',
+    dupText: 'I njëjti telefon ose e-mail si kërkesa e {date} ({name}).',
+    dupOpen: 'Hap origjinalen',
+    dupClose: 'Shëno si dyfish dhe mbyll',
+    dupClosed: 'U mbyll si dyfish',
+    close: 'Mbyll kërkesën',
+    reopen: 'Rihap',
+    spam: 'Shëno si spam',
+    spamDone: 'U shënua si spam dhe u mbyll',
+    delete: 'Fshij',
     deleteTitle: 'Të fshihet kjo kërkesë?',
-    deleteText: 'Kërkesa nga {name} do të hiqet përgjithmonë nga CMS-i.',
+    deleteText: 'Kërkesa nga {name} do të hiqet përgjithmonë. Profili i klientit dhe porositë mbeten.',
     deleted: 'Kërkesa u fshi',
+    archiveNote: 'Mbyllja ose arkivimi i kërkesës nuk e fshin klientin.',
+    readOnly: 'Vetëm shikim',
     mailSubject: 'SELCA COMPANY — kërkesa juaj',
+    bk_pending: 'Në pritje',
+    bk_confirmed: 'Konfirmuar',
+    bk_done: 'Kryer',
+    bk_cancelled: 'Anuluar',
+    bk_noshow: 'Nuk erdhi',
   },
   en: {
+    request: 'Request',
     received: 'Received {date}',
-    message: 'Customer message',
-    details: 'Details',
+    from: 'from',
+    message: 'Message',
+    product: 'Product',
     service: 'Service',
     preferred: 'Preferred date',
-    product: 'Linked product',
-    openOnSite: 'Open on site',
+    city: 'City',
     priceFrom: 'from {price}',
     onRequest: 'Price on request',
-    statusTitle: 'Status',
-    act_contacted: 'Contacted',
-    act_scheduled: 'Scheduled',
-    act_done: 'Done',
-    visitAt: 'Visit date & time',
-    visitHint: 'Customer asked for: {date}',
-    visitHintNone: 'Pick the date and time of the measurement visit.',
+    manage: 'Handling',
+    status: 'Status',
+    assignee: 'Assignee',
+    takeIt: 'Take it',
+    followUp: 'Follow-up due',
+    noDue: 'Clear',
+    today17: 'Today 5 pm',
+    tomorrow: 'Tomorrow',
+    in3: '+3 days',
+    week: '+1 week',
+    tags: 'Tags',
+    tagsPh: 'Add a tag and press Enter…',
+    links: 'Appointments & quotes',
+    linksEmpty: 'No appointment or B2B quote for this request yet.',
+    open: 'Open',
+    customer: 'Customer profile',
+    createBooking: 'Create appointment',
+    createQuote: 'Create B2B quote',
+    openQuote: 'Open quote {number}',
     statusSaved: 'Status: {status}',
-    scheduledToast: 'Visit scheduled — {when}',
-    note: 'Internal note',
-    notePh: 'E.g. measurement agreed for 5 pm, bring laminate samples…',
-    noteHint: 'Only visible to admins.',
-    saveNote: 'Save note',
-    noteSaved: 'Note saved',
-    delete: 'Delete inquiry',
-    deleteTitle: 'Delete this inquiry?',
-    deleteText: 'The inquiry from {name} will be permanently removed from the CMS.',
-    deleted: 'Inquiry deleted',
-    mailSubject: 'SELCA COMPANY — your inquiry',
+    assigned: 'Assigned: {name}',
+    unassignedToast: 'The request has no assignee now',
+    dupTitle: 'Possible duplicate',
+    dupText: 'Same phone or e-mail as the request from {date} ({name}).',
+    dupOpen: 'Open original',
+    dupClose: 'Mark duplicate & close',
+    dupClosed: 'Closed as duplicate',
+    close: 'Close request',
+    reopen: 'Reopen',
+    spam: 'Mark as spam',
+    spamDone: 'Marked as spam and closed',
+    delete: 'Delete',
+    deleteTitle: 'Delete this request?',
+    deleteText: 'The request from {name} will be removed permanently. The customer profile and orders stay.',
+    deleted: 'Request deleted',
+    archiveNote: 'Closing or archiving a request does not delete the customer.',
+    readOnly: 'View only',
+    mailSubject: 'SELCA COMPANY — your request',
+    bk_pending: 'Pending',
+    bk_confirmed: 'Confirmed',
+    bk_done: 'Done',
+    bk_cancelled: 'Cancelled',
+    bk_noshow: 'No-show',
   },
 });
 
-const ACTIONS: { id: Exclude<InquiryStatus, 'new'>; icon: ComponentType<{ className?: string }>; on: string }[] = [
-  { id: 'contacted', icon: PhoneCall, on: 'border-sky-600/30 bg-sky-50 text-sky-800 ring-2 ring-sky-600/15' },
-  { id: 'scheduled', icon: CalendarCheck2, on: 'border-violet-600/30 bg-violet-50 text-violet-800 ring-2 ring-violet-600/15' },
-  { id: 'done', icon: CheckCircle2, on: 'border-emerald-600/30 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-600/15' },
-];
-
-/** Sensible default visit slot: the customer's preferred day (if still ahead) or the next working day, at 10:00. */
-function defaultVisit(q: Inquiry) {
-  const today = startOfDay(Date.now());
-  let d = q.preferredDate ? parseDay(q.preferredDate) : null;
-  if (!d || Number.isNaN(d.getTime()) || d < today) {
-    d = new Date(today);
-    d.setDate(d.getDate() + 1);
-    if (d.getDay() === 0) d.setDate(d.getDate() + 1);
-  }
-  d.setHours(10, 0, 0, 0);
+/** Follow-up quick pick: `days` from today at `hour`:00 (local). */
+function at(days: number, hour: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  d.setHours(hour, 0, 0, 0);
   return d.toISOString();
 }
 
-function Section({ title, icon, children, aside }: { title: ReactNode; icon?: ReactNode; children: ReactNode; aside?: ReactNode }) {
-  return (
-    <section>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h3 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted">
-          {icon}
-          {title}
-        </h3>
-        {aside}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function DetailRow({ label, children }: { label: ReactNode; children: ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-4 px-4 py-2.5 text-sm">
-      <span className="shrink-0 text-muted">{label}</span>
-      <span className="min-w-0 text-right font-medium text-ink">{children}</span>
-    </div>
-  );
-}
-
-function NoteEditor({ inquiry }: { inquiry: Inquiry }) {
+export function InquiryDrawer({
+  inquiry: q,
+  product,
+  open,
+  onClose,
+  index,
+  duplicateOf,
+  onOpenInquiry,
+}: {
+  inquiry: InquiryX | undefined;
+  product?: Product;
+  open: boolean;
+  onClose: () => void;
+  index: CustomerIndex;
+  duplicateOf?: InquiryX;
+  onOpenInquiry: (id: string) => void;
+}) {
   const t = useDict(T, 'admin');
-  const updateInquiry = useDb((s) => s.updateInquiry);
-  const [note, setNote] = useState(inquiry.note ?? '');
-  const dirty = note.trim() !== (inquiry.note ?? '').trim();
-  const save = () => {
-    updateInquiry(inquiry.id, { note: note.trim() || undefined });
-    toast.success(t('noteSaved'));
-  };
-  return (
-    <Section title={t('note')} icon={<StickyNote className="h-3.5 w-3.5" />}>
-      <Textarea
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder={t('notePh')}
-        rows={3}
-        className="text-sm"
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && dirty) save();
-        }}
-      />
-      <div className="mt-2 flex items-center justify-between gap-3">
-        <span className="text-[12px] text-muted">{t('noteHint')}</span>
-        <Button size="xs" shape="rounded" variant={dirty ? 'dark' : 'outline'} disabled={!dirty} onClick={save}>
-          {t('saveNote')}
-        </Button>
-      </div>
-    </Section>
-  );
-}
-
-export function InquiryDrawer({ inquiry: q, product, open, onClose }: { inquiry: Inquiry | undefined; product?: Product; open: boolean; onClose: () => void }) {
-  const t = useDict(T, 'admin');
-  const tc = useDict(common, 'admin');
-  const tr = useDict(crm, 'admin');
-  const l = useL('admin');
   const lang = useLang('admin');
-  const updateInquiry = useDb((s) => s.updateInquiry);
-  const deleteInquiry = useDb((s) => s.deleteInquiry);
-
-  const setStatus = (status: Exclude<InquiryStatus, 'new'>) => {
-    if (!q || q.status === status) return;
-    if (status === 'scheduled') {
-      const scheduledAt = q.scheduledAt ?? defaultVisit(q);
-      updateInquiry(q.id, { status, scheduledAt, seen: true });
-      toast.success(t('scheduledToast', { when: dateTime(scheduledAt, lang) }));
-    } else {
-      updateInquiry(q.id, { status, seen: true });
-      toast.success(t('statusSaved', { status: tc(`inqstatus_${status}`) }));
-    }
-  };
-
-  const remove = async () => {
-    if (!q) return;
-    const ok = await confirmDialog({ title: t('deleteTitle'), text: t('deleteText', { name: q.name }), confirmLabel: t('delete'), danger: true });
-    if (!ok) return;
-    onClose();
-    deleteInquiry(q.id);
-    toast.success(t('deleted'));
-  };
-
   return (
     <Drawer
       open={open && !!q}
       onClose={onClose}
-      width="max-w-[540px]"
-      title={q && <span className="text-[15px] font-bold text-ink">{tc(`inq_${q.type}`)}</span>}
-      footer={
+      width="max-w-[600px]"
+      title={
         q && (
-          <div className="grid grid-cols-3 gap-2">
-            <ContactAction href={telHref(q.phone)} icon={<Phone className="h-4 w-4" />} variant="primary">
-              {tr('call')}
-            </ContactAction>
-            <ContactAction href={waHref(q.phone)} icon={<WhatsAppIcon className="h-4 w-4" />} variant="whatsapp" external>
-              {tr('whatsapp')}
-            </ContactAction>
-            <ContactAction href={q.email ? mailHref(q.email, t('mailSubject')) : '#'} icon={<Mail className="h-4 w-4" />} disabled={!q.email}>
-              {tr('email')}
-            </ContactAction>
-          </div>
+          <span className="flex min-w-0 items-center gap-2 text-[14px] font-semibold text-ink">
+            <span className="text-muted">{t('request')}</span>
+            <span className="text-ink/25">/</span>
+            <span className="truncate">{q.name}</span>
+            <span className="hidden text-[12.5px] font-normal text-muted sm:inline">· {date(q.createdAt, lang)}</span>
+          </span>
         )
       }
+      footer={q && <Footer inquiry={q} />}
     >
-      {q && (
-        <div className="space-y-6 px-5 py-6 sm:px-6">
-          {/* Who */}
-          <div className="flex items-start gap-4">
-            <InquiryTypeIcon type={q.type} className="h-12 w-12 rounded-2xl [&>svg]:h-5 [&>svg]:w-5" />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-xl font-extrabold tracking-tight text-ink">{q.name}</h2>
-                <InquiryStatusBadge status={q.status} />
-              </div>
-              <p className="mt-1 flex items-center gap-1.5 text-[13px] text-muted">
-                <Clock className="h-3.5 w-3.5" /> {t('received', { date: dateTime(q.createdAt, lang) })}
-              </p>
-            </div>
-          </div>
+      {q && <Body key={q.id} inquiry={q} product={product} index={index} duplicateOf={duplicateOf} onClose={onClose} onOpenInquiry={onOpenInquiry} />}
+    </Drawer>
+  );
+}
 
-          {/* Message */}
-          <Section title={t('message')} icon={<MessageSquareText className="h-3.5 w-3.5" />}>
-            <div className="relative rounded-2xl border border-line/80 bg-white py-4 pl-11 pr-5">
-              <span aria-hidden className="pointer-events-none absolute left-3.5 top-3 font-display text-[40px] leading-none text-brand-300">“</span>
-              <p className="whitespace-pre-line text-[15px] leading-relaxed text-ink">{q.message}</p>
-            </div>
-          </Section>
+/* ------------------------------------------------------------------ */
+/* Footer: the two hand-offs (p.43/45) — appointment and B2B quote      */
+/* ------------------------------------------------------------------ */
+function Footer({ inquiry: q }: { inquiry: InquiryX }) {
+  const t = useDict(T, 'admin');
+  const can = useCan();
+  const noPerm = useNoPermText();
+  const navigate = useNavigate();
+  const quotes = useDb((s) => s.quotes);
+  const [booking, setBooking] = useState(false);
+  const quote = useMemo(() => quotes.filter((x) => x.inquiryId === q.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0], [quotes, q.id]);
+  const canBook = can('appointments', 'edit');
+  const canQuote = can('quotes', 'edit') || (!!quote && can('quotes', 'view'));
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        <span title={canBook ? undefined : noPerm}>
+          <Button variant="outline" shape="rounded" size="sm" className="w-full" icon={<CalendarPlus className="h-4 w-4" />} disabled={!canBook || q.status === 'done'} onClick={() => setBooking(true)}>
+            {t('createBooking')}
+          </Button>
+        </span>
+        <span title={canQuote ? undefined : noPerm}>
+          <Button
+            variant="primary"
+            shape="rounded"
+            size="sm"
+            className="w-full"
+            icon={<FileText className="h-4 w-4" />}
+            disabled={!canQuote}
+            onClick={() => navigate(quote ? `/admin/kontakti/ponude?id=${quote.id}` : `/admin/kontakti/ponude?id=new&inquiry=${q.id}`)}
+          >
+            <span className="truncate">{quote ? t('openQuote', { number: quote.number }) : t('createQuote')}</span>
+          </Button>
+        </span>
+      </div>
+      <BookingModal inquiry={q} open={booking} onClose={() => setBooking(false)} />
+    </>
+  );
+}
 
-          {/* Linked product */}
-          {product && (
-            <Section title={t('product')}>
-              <a href={`/proizvod/${product.slug}`} target="_blank" rel="noreferrer" className="group flex items-center gap-3.5 rounded-2xl border border-line/80 bg-white p-3 transition-colors hover:border-ink/25">
-                <Thumb src={product.images[0]} className="h-16 w-16 rounded-xl" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-bold text-ink">{l(product.name)}</div>
-                  <div className="mt-0.5 text-[12px] text-muted">
-                    {product.sku} · {product.quoteOnly ? t('onRequest') : t('priceFrom', { price: `${money(basePrice(product), lang)} ${perUnit(product.unit, lang)}` })}
-                  </div>
-                  <div className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-brand-700 group-hover:underline">
-                    {t('openOnSite')} <ExternalLink className="h-3 w-3" />
-                  </div>
-                </div>
-              </a>
-            </Section>
-          )}
+/* ------------------------------------------------------------------ */
+function Body({ inquiry: q, product, index, duplicateOf, onClose, onOpenInquiry }: { inquiry: InquiryX; product?: Product; index: CustomerIndex; duplicateOf?: InquiryX; onClose: () => void; onOpenInquiry: (id: string) => void }) {
+  const t = useDict(T, 'admin');
+  const tx = useDict(cx, 'admin');
+  const l = useL('admin');
+  const lang = useLang('admin');
+  const can = useCan();
+  const noPerm = useNoPermText();
+  const me = useCurrentStaff();
+  const now = useNow();
+  const staff = useDb((s) => s.staff);
+  const allBookings = useDb((s) => s.bookings);
+  const allQuotes = useDb((s) => s.quotes);
+  const inquiries = useDb((s) => s.inquiries);
+  const services = useDb((s) => s.services);
+  const canEdit = can('contacts', 'edit');
+  const assignable = useMemo(() => assignableStaff(staff), [staff]);
+  const assignee = staff.find((m) => m.id === q.assignee);
+  const bookings = useMemo(() => bookingsFor(q.id, allBookings), [q.id, allBookings]);
+  const quotes = useMemo(() => allQuotes.filter((x) => x.inquiryId === q.id), [allQuotes, q.id]);
+  const kind = kindOf(q, bookings.length > 0);
+  const src = sourceOf(q);
+  const path = sourcePath(q, product?.slug);
+  const due = dueOf(q);
+  const tagPool = useMemo(() => [...new Set(inquiries.flatMap((x) => x.tags ?? []))].sort(), [inquiries]);
+  const [booking, setBooking] = useState(false);
 
-          {/* Status */}
-          <Section title={t('statusTitle')}>
-            <div className="grid grid-cols-3 gap-2">
-              {ACTIONS.map((a) => {
-                const on = q.status === a.id;
-                return (
-                  <button
-                    key={a.id}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => setStatus(a.id)}
-                    className={cn(
-                      'flex flex-col items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-[12.5px] font-semibold transition-all active:scale-[0.98]',
-                      on ? a.on : 'border-line bg-white text-ink-soft hover:border-ink/30 hover:text-ink',
-                    )}
-                  >
-                    <a.icon className="h-[18px] w-[18px]" />
-                    <span className="text-center leading-tight">{t(`act_${a.id}`)}</span>
-                  </button>
-                );
-              })}
-            </div>
+  const db = () => useDb.getState();
+  const setStatus = (status: InquiryStatus, msg?: string, extraTags?: string[]) => {
+    if (q.status === status && !extraTags) return;
+    if (status === 'scheduled' && !bookings.some((b) => new Date(b.start).getTime() > Date.now() && b.status !== 'cancelled')) {
+      if (can('appointments', 'edit')) setBooking(true);
+      return;
+    }
+    db().updateInquiry(q.id, { status, seen: true, ...(extraTags ? { tags: [...new Set([...(q.tags ?? []), ...extraTags])] } : {}) });
+    if (q.status !== status) db().logAudit({ action: 'status', object: 'inquiry', objectId: q.id, detail: `${q.status} → ${status}` });
+    toast.success(msg ?? t('statusSaved', { status: tx(`st_${status}`) }));
+  };
+  const assign = (id: string) => {
+    db().assignInquiry(q.id, id || null);
+    const m = staff.find((x) => x.id === id);
+    toast.success(m ? t('assigned', { name: m.name }) : t('unassignedToast'));
+  };
+  const setFollow = (iso: string | undefined) => db().updateInquiry(q.id, { followUpAt: iso });
 
-            {q.status === 'scheduled' && (
-              <div className="mt-3 rounded-2xl border border-violet-600/15 bg-violet-50/60 p-4">
-                <label htmlFor={`visit-${q.id}`} className="mb-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-violet-900">
-                  <CalendarClock className="h-4 w-4" /> {t('visitAt')}
-                </label>
-                <input
-                  id={`visit-${q.id}`}
-                  type="datetime-local"
-                  value={toLocalInput(q.scheduledAt)}
-                  onChange={(e) => {
-                    const v = fromLocalInput(e.target.value);
-                    if (v) updateInquiry(q.id, { scheduledAt: v });
-                  }}
-                  className="h-11 w-full rounded-xl border border-violet-600/20 bg-white px-3.5 text-[15px] text-ink outline-none transition focus:border-violet-600/50 focus:ring-4 focus:ring-violet-600/10"
-                />
-                <p className="mt-1.5 text-[12px] text-violet-900/70">
-                  {q.preferredDate ? t('visitHint', { date: date(parseDay(q.preferredDate), lang, { weekday: 'long', day: 'numeric', month: 'long' }) }) : t('visitHintNone')}
-                </p>
+  const remove = async () => {
+    const ok = await confirmDialog({ title: t('deleteTitle'), text: t('deleteText', { name: q.name }), confirmLabel: t('delete'), danger: true });
+    if (!ok) return;
+    onClose();
+    db().deleteInquiry(q.id);
+    db().logAudit({ action: 'delete', object: 'inquiry', objectId: q.id, detail: q.name });
+    toast.success(t('deleted'));
+  };
+
+  return (
+    <div className="space-y-6 px-5 py-5 sm:px-6">
+      {/* Who */}
+      <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-[20px] font-bold tracking-tight text-ink">{q.name}</h2>
+            {q.company && (
+              <div className="mt-0.5 flex items-center gap-1.5 text-[13px] text-ink-soft">
+                <Building2 className="h-3.5 w-3.5 text-muted" /> {q.company}
               </div>
             )}
-          </Section>
+          </div>
+          {!canEdit && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11.5px] font-semibold text-muted" title={noPerm}>
+              <Lock className="h-3 w-3" /> {t('readOnly')}
+            </span>
+          )}
+        </div>
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <StatusLabel status={q.status} />
+          <KindLabel kind={kind} />
+          <span className="text-[13px] text-ink-soft">{tx(sourceKey(src))}</span>
+          {due && <DueLabel due={due} now={now} />}
+        </div>
+        <p className="mt-1.5 text-[12.5px] text-muted">
+          {t('received', { date: dateTime(q.createdAt, lang) })}
+          {path && (
+            <>
+              {' '}
+              {t('from')}{' '}
+              <a href={href(path)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-ink-soft underline decoration-ink/20 underline-offset-2 hover:text-ink">
+                {path}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </>
+          )}
+        </p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <ContactLink href={telHref(q.phone)} icon={<Phone className="h-3.5 w-3.5" />}>
+            {q.phone}
+          </ContactLink>
+          <ContactLink href={waHref(q.phone)} icon={<WhatsAppIcon className="h-3.5 w-3.5" />} external>
+            WhatsApp
+          </ContactLink>
+          {q.email ? (
+            <ContactLink href={mailHref(q.email, t('mailSubject'))} icon={<Mail className="h-3.5 w-3.5" />}>
+              <span className="max-w-[220px] truncate">{q.email}</span>
+            </ContactLink>
+          ) : null}
+        </div>
+      </div>
 
-          {/* Details */}
-          <Section title={t('details')}>
-            <div className="divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-white">
-              <DetailRow label={tr('phone')}>
-                <a href={telHref(q.phone)} className="tabular-nums hover:text-brand-700">
-                  {q.phone}
-                </a>
-              </DetailRow>
-              <DetailRow label={tr('email')}>
-                {q.email ? (
-                  <a href={mailHref(q.email)} className="break-all hover:text-brand-700">
-                    {q.email}
-                  </a>
-                ) : (
-                  <span className="text-muted">—</span>
+      {duplicateOf && (
+        <div className="rounded-xl border border-amber-600/25 bg-amber-50 p-3.5 text-[13px] text-amber-900">
+          <div className="flex items-start gap-2.5">
+            <Copy className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold">{t('dupTitle')}</div>
+              <div className="mt-0.5 text-amber-900/80">{t('dupText', { date: dateTime(duplicateOf.createdAt, lang), name: duplicateOf.name })}</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="button" onClick={() => onOpenInquiry(duplicateOf.id)} className="inline-flex h-7 items-center gap-1 rounded-md border border-amber-700/25 bg-white px-2.5 text-[12px] font-semibold text-amber-900 hover:border-amber-700/50">
+                  {t('dupOpen')} <ArrowUpRight className="h-3 w-3" />
+                </button>
+                {canEdit && q.status !== 'done' && (
+                  <button type="button" onClick={() => setStatus('done', t('dupClosed'), ['dyfish'])} className="inline-flex h-7 items-center rounded-md px-2 text-[12px] font-semibold text-amber-900 hover:bg-amber-100">
+                    {t('dupClose')}
+                  </button>
                 )}
-              </DetailRow>
-              {q.city && (
-                <DetailRow label={tr('city')}>
-                  <span className="inline-flex items-center gap-1">
-                    <MapPin className="h-3.5 w-3.5 text-muted" /> {q.city}
-                  </span>
-                </DetailRow>
-              )}
-              {q.service && (
-                <DetailRow label={t('service')}>
-                  <span className="inline-flex items-center gap-1">
-                    <Wrench className="h-3.5 w-3.5 text-muted" /> {q.service}
-                  </span>
-                </DetailRow>
-              )}
-              {q.preferredDate && <DetailRow label={t('preferred')}>{date(parseDay(q.preferredDate), lang, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })}</DetailRow>}
+              </div>
             </div>
-          </Section>
-
-          <NoteEditor key={q.id} inquiry={q} />
-
-          <div className="border-t border-line pt-4">
-            <button type="button" onClick={remove} className="inline-flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] font-semibold text-red-600 transition-colors hover:bg-red-50">
-              <Trash2 className="h-4 w-4" /> {t('delete')}
-            </button>
           </div>
         </div>
       )}
-    </Drawer>
+
+      {/* Message */}
+      <section>
+        <SectionTitle>{t('message')}</SectionTitle>
+        <div className="overflow-hidden rounded-xl border border-line bg-white">
+          <p className="whitespace-pre-line px-4 py-3.5 text-[14px] leading-relaxed text-ink">{q.message}</p>
+          {(product || q.service || q.preferredDate || q.city) && (
+            <div className="divide-y divide-line/70 border-t border-line/70 bg-canvas/30">
+              {product && (
+                <a href={href(`/proizvod/${product.slug}`)} target="_blank" rel="noreferrer" className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-canvas">
+                  <Thumb src={product.images[0]} className="h-10 w-10 rounded-md" />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5 text-[11.5px] text-muted">
+                      <Package className="h-3 w-3" /> {t('product')}
+                    </span>
+                    <span className="block truncate text-[13px] font-semibold text-ink group-hover:underline">{l(product.name)}</span>
+                  </span>
+                  <span className="shrink-0 text-[12px] text-muted">{product.quoteOnly ? t('onRequest') : t('priceFrom', { price: `${money(basePrice(product), lang)} ${perUnit(product.unit, lang)}` })}</span>
+                </a>
+              )}
+              {q.service && <MetaRow icon={<Wrench className="h-3.5 w-3.5" />} label={t('service')} value={q.service} />}
+              {q.preferredDate && <MetaRow icon={<CalendarClock className="h-3.5 w-3.5" />} label={t('preferred')} value={date(parseDay(q.preferredDate), lang, { weekday: 'short', day: 'numeric', month: 'long' })} />}
+              {q.city && <MetaRow icon={<MapPin className="h-3.5 w-3.5" />} label={t('city')} value={q.city} />}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Handling: status, assignee, follow-up, tags */}
+      <section>
+        <SectionTitle>{t('manage')}</SectionTitle>
+        <div className="space-y-4 rounded-xl border border-line bg-white p-4" title={canEdit ? undefined : noPerm}>
+          <div>
+            <div className="mb-1 text-[12.5px] font-semibold text-ink-soft">{t('status')}</div>
+            <Segmented<InquiryStatus>
+              value={q.status}
+              onChange={(s) => setStatus(s)}
+              disabled={!canEdit}
+              cols="grid-cols-2 sm:grid-cols-4"
+              options={STATUSES.map((s) => ({ id: s, label: tx(`st_${s}`), icon: <span className="grid w-3.5 place-items-center"><StatusSymbol status={s} /></span> }))}
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-[12.5px] font-semibold text-ink-soft">{t('assignee')}</span>
+                {canEdit && me && q.assignee !== me.id && assignable.some((m) => m.id === me.id) && (
+                  <button type="button" onClick={() => assign(me.id)} className="text-[12px] font-semibold text-ink-soft underline decoration-ink/20 underline-offset-2 hover:text-ink">
+                    {t('takeIt')}
+                  </button>
+                )}
+              </div>
+              {canEdit ? (
+                <CSelect value={q.assignee ?? ''} onChange={(e) => assign(e.target.value)} aria-label={t('assignee')}>
+                  <option value="">{tx('unassigned')}</option>
+                  {assignable.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                      {m.title ? ` — ${l(m.title)}` : ''}
+                    </option>
+                  ))}
+                </CSelect>
+              ) : (
+                <div className="flex h-10 items-center">
+                  <AssigneeLabel staff={assignee} />
+                </div>
+              )}
+            </div>
+            <div>
+              <div className="mb-1 text-[12.5px] font-semibold text-ink-soft">{t('followUp')}</div>
+              <input
+                type="datetime-local"
+                value={toLocalInput(q.followUpAt)}
+                disabled={!canEdit}
+                onChange={(e) => setFollow(fromLocalInput(e.target.value))}
+                className="h-10 w-full rounded-lg border border-line bg-white px-3 text-[13.5px] text-ink outline-none transition-colors focus:border-ink/40 focus:ring-4 focus:ring-ink/5 disabled:bg-canvas/70 disabled:text-muted"
+              />
+            </div>
+          </div>
+          {canEdit && (
+            <div className="-mt-2 flex flex-wrap gap-1.5 sm:justify-end">
+              <Chip onClick={() => setFollow(at(0, 17))}>{t('today17')}</Chip>
+              <Chip onClick={() => setFollow(at(1, 10))}>{t('tomorrow')}</Chip>
+              <Chip onClick={() => setFollow(at(3, 10))}>{t('in3')}</Chip>
+              <Chip onClick={() => setFollow(at(7, 10))}>{t('week')}</Chip>
+              {q.followUpAt && <Chip onClick={() => setFollow(undefined)}>{t('noDue')}</Chip>}
+            </div>
+          )}
+          <div>
+            <div className="mb-1 text-[12.5px] font-semibold text-ink-soft">{t('tags')}</div>
+            <TagsField value={q.tags ?? []} onChange={(tags) => db().updateInquiry(q.id, { tags })} suggestions={tagPool} placeholder={t('tagsPh')} disabled={!canEdit} />
+          </div>
+        </div>
+      </section>
+
+      {/* Linked appointments & quotes */}
+      <section>
+        <SectionTitle>{t('links')}</SectionTitle>
+        {bookings.length === 0 && quotes.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-line px-4 py-3.5 text-[13px] text-muted">{t('linksEmpty')}</p>
+        ) : (
+          <ul className="divide-y divide-line/70 overflow-hidden rounded-xl border border-line bg-white">
+            {bookings.map((b) => {
+              const svc = services.find((s) => s.id === b.serviceId);
+              const who = staff.find((m) => m.id === b.staffId);
+              return (
+                <li key={b.id}>
+                  <Link to={`/admin/termini?id=${b.id}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-canvas/70">
+                    <CalendarClock className="h-4 w-4 shrink-0 text-muted" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold text-ink">{dateTime(b.start, lang)}</span>
+                      <span className="block truncate text-[12px] text-muted">{[svc && l(svc.name), who?.name].filter(Boolean).join(' · ')}</span>
+                    </span>
+                    <span className={cn('inline-flex shrink-0 items-center gap-1 text-[12px]', b.status === 'cancelled' || b.status === 'noshow' ? 'text-muted' : 'text-ink-soft')}>
+                      {b.status === 'cancelled' || b.status === 'noshow' ? <XCircle className="h-3.5 w-3.5" /> : b.status === 'pending' ? <Clock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                      {t(`bk_${b.status}`)}
+                    </span>
+                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted" />
+                  </Link>
+                </li>
+              );
+            })}
+            {quotes.map((x) => (
+              <li key={x.id}>
+                <Link to={`/admin/kontakti/ponude?id=${x.id}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-canvas/70">
+                  <FileText className="h-4 w-4 shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-semibold text-ink">
+                      {x.number} · v{x.version}
+                    </span>
+                    <span className="block truncate text-[12px] text-muted">{x.customer.company || x.customer.name}</span>
+                  </span>
+                  <QuoteStatusLabel state={quoteState(x, now)} className="text-[12px]" />
+                  <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Replies · private notes · history */}
+      <Conversation inquiry={q} canEdit={canEdit} bookings={bookings} quotes={quotes} />
+
+      {/* Customer */}
+      <section>
+        <SectionTitle icon={<UserRound className="h-3.5 w-3.5" />}>{t('customer')}</SectionTitle>
+        <CustomerLink inquiry={q} index={index} canEdit={canEdit} canOpenProfile={can('customers', 'view')} onOpenInquiry={onOpenInquiry} />
+      </section>
+
+      {/* Close / spam / delete */}
+      <div className="border-t border-line pt-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {canEdit &&
+            (q.status === 'done' ? (
+              <Button size="xs" shape="rounded" variant="outline" onClick={() => setStatus('contacted')}>
+                {t('reopen')}
+              </Button>
+            ) : (
+              <Button size="xs" shape="rounded" variant="outline" icon={<StatusSymbol status="done" className="text-ink" />} onClick={() => setStatus('done')}>
+                {t('close')}
+              </Button>
+            ))}
+          {canEdit && !(q.tags ?? []).includes('spam') && (
+            <Button size="xs" shape="rounded" variant="ghost" icon={<Ban className="h-3.5 w-3.5" />} onClick={() => setStatus('done', t('spamDone'), ['spam'])}>
+              {t('spam')}
+            </Button>
+          )}
+          {can('contacts', 'delete') && (
+            <button type="button" onClick={remove} className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-semibold text-red-700 transition-colors hover:bg-red-50">
+              <Trash2 className="h-3.5 w-3.5" /> {t('delete')}
+            </button>
+          )}
+        </div>
+        <p className="mt-2 text-[12px] text-muted">{t('archiveNote')}</p>
+      </div>
+
+      <BookingModal inquiry={q} open={booking} onClose={() => setBooking(false)} />
+    </div>
+  );
+}
+
+function ContactLink({ href: to, icon, children, external }: { href: string; icon: ReactNode; children: ReactNode; external?: boolean }) {
+  return (
+    <a
+      href={to}
+      target={external ? '_blank' : undefined}
+      rel={external ? 'noreferrer' : undefined}
+      className="inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line bg-white px-2.5 text-[12.5px] font-semibold text-ink transition-colors hover:border-ink/30"
+    >
+      <span className="shrink-0 text-muted">{icon}</span>
+      {children}
+    </a>
+  );
+}
+
+function MetaRow({ icon, label, value }: { icon: ReactNode; label: ReactNode; value: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 text-[13px]">
+      <span className="text-muted">{icon}</span>
+      <span className="text-muted">{label}</span>
+      <span className="ml-auto text-right font-medium text-ink">{value}</span>
+    </div>
   );
 }

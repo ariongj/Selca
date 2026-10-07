@@ -15,21 +15,62 @@ import { cn } from '@/lib/utils';
 /* ------------------------------------------------------------------ */
 /* Page header                                                         */
 /* ------------------------------------------------------------------ */
-export function PageHeader({ title, description, actions, back, badge }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; back?: string; badge?: ReactNode }) {
+/** A breadcrumb step: plain text, or a link back to a parent screen. */
+export type Crumb = string | { label: string; to: string };
+
+/**
+ * Screen header (PDF p.07/p.12): breadcrumb ("Produktet / Të gjitha"), title + badge, description, actions on the right.
+ *
+ *   <PageHeader breadcrumbs={[ta('nav_products'), ta('all')]} title={ta('nav_products')} actions={…} />
+ *   <PageHeader breadcrumbs={[{ label: ta('nav_offers'), to: '/admin/ponude' }, l(offer.name)]} back="/admin/ponude" … />
+ *
+ * `back` (a link above the title) still works; when both are given, the back arrow sits in front of the breadcrumb.
+ */
+export function PageHeader({ title, description, actions, back, badge, breadcrumbs }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; back?: string; badge?: ReactNode; breadcrumbs?: Crumb[] }) {
   const t = useDict(adm, 'admin');
+  const crumbs = breadcrumbs?.filter((c) => (typeof c === 'string' ? c : c.label)) ?? [];
   return (
-    <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
       <div className="min-w-0">
-        {back && (
-          <Link to={back} className="mb-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-muted hover:text-ink">
-            <ArrowLeft className="h-3.5 w-3.5" /> {t('back')}
-          </Link>
+        {crumbs.length > 0 ? (
+          <nav aria-label={t('breadcrumb')} className="mb-1.5 flex min-w-0 items-center gap-1 text-[13px] text-muted">
+            {back && (
+              <Link to={back} title={t('back')} aria-label={t('back')} className="-ml-1 mr-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-ink/[0.06] hover:text-ink">
+                <ArrowLeft className="h-3.5 w-3.5" />
+              </Link>
+            )}
+            <ol className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
+              {crumbs.map((c, i) => {
+                const last = i === crumbs.length - 1;
+                return (
+                  <li key={i} className="flex min-w-0 items-center gap-1">
+                    {typeof c === 'string' ? (
+                      <span className={cn('truncate', last && 'text-ink-soft')} aria-current={last ? 'page' : undefined}>
+                        {c}
+                      </span>
+                    ) : (
+                      <Link to={c.to} className="truncate transition-colors hover:text-ink hover:underline hover:underline-offset-2">
+                        {c.label}
+                      </Link>
+                    )}
+                    {!last && <span className="text-ink/25" aria-hidden>/</span>}
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+        ) : (
+          back && (
+            <Link to={back} className="mb-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-muted hover:text-ink">
+              <ArrowLeft className="h-3.5 w-3.5" /> {t('back')}
+            </Link>
+          )
         )}
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-extrabold tracking-tight text-ink sm:text-[28px]">{title}</h1>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h1 className="text-[22px] font-bold leading-tight tracking-tight text-ink sm:text-[26px]">{title}</h1>
           {badge}
         </div>
-        {description && <p className="mt-1.5 max-w-2xl text-sm text-muted">{description}</p>}
+        {description && <p className="mt-1 max-w-2xl text-[13.5px] text-muted">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -41,11 +82,11 @@ export function PageHeader({ title, description, actions, back, badge }: { title
 /* ------------------------------------------------------------------ */
 export function Card({ title, description, actions, children, className, bodyClassName, padded = true }: { title?: ReactNode; description?: ReactNode; actions?: ReactNode; children?: ReactNode; className?: string; bodyClassName?: string; padded?: boolean }) {
   return (
-    <section className={cn('rounded-2xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(28_26_23/0.04)]', className)}>
+    <section className={cn('rounded-xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)]', className)}>
       {(title || actions) && (
-        <header className="flex items-start justify-between gap-4 border-b border-line/70 px-5 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-line/70 px-5 py-3.5">
           <div className="min-w-0">
-            {title && <h2 className="text-[15px] font-bold text-ink">{title}</h2>}
+            {title && <h2 className="text-[14.5px] font-semibold text-ink">{title}</h2>}
             {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
@@ -62,20 +103,20 @@ export function Card({ title, description, actions, children, className, bodyCla
 export function Table({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={cn('overflow-x-auto', className)}>
-      <table className="w-full min-w-[640px] border-collapse text-left text-sm">{children}</table>
+      <table className="w-full min-w-[640px] border-collapse text-left text-[13.5px]">{children}</table>
     </div>
   );
 }
 export function Th({ children, className, ...rest }: ThHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <th className={cn('whitespace-nowrap border-b border-line bg-canvas/60 px-4 py-2.5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted first:pl-5 last:pr-5', className)} {...rest}>
+    <th className={cn('whitespace-nowrap border-b border-line bg-canvas/60 px-4 py-2.5 text-[12.5px] font-semibold text-muted first:pl-5 last:pr-5', className)} {...rest}>
       {children}
     </th>
   );
 }
 export function Td({ children, className, ...rest }: TdHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <td className={cn('border-b border-line/70 px-4 py-3 align-middle text-ink first:pl-5 last:pr-5', className)} {...rest}>
+    <td className={cn('border-b border-line/70 px-4 py-2.5 align-middle text-ink first:pl-5 last:pr-5', className)} {...rest}>
       {children}
     </td>
   );
@@ -178,7 +219,7 @@ export function SaveBar({ dirty, onSave, onDiscard, saving }: { dirty: boolean; 
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 80, opacity: 0 }}
           transition={{ type: 'spring', damping: 26, stiffness: 300 }}
-          className="fixed bottom-5 left-1/2 z-50 flex w-[min(560px,calc(100%-2rem))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl bg-ink px-4 py-3 text-paper shadow-2xl lg:left-[calc(50%+130px)]"
+          className="fixed bottom-5 left-1/2 z-50 flex w-[min(560px,calc(100%-2rem))] -translate-x-1/2 items-center justify-between gap-3 rounded-xl bg-ink px-4 py-3 text-paper shadow-2xl lg:left-[calc(50%+120px)]"
         >
           <span className="flex items-center gap-2 text-sm font-medium">
             <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
@@ -188,7 +229,7 @@ export function SaveBar({ dirty, onSave, onDiscard, saving }: { dirty: boolean; 
             <Button size="sm" variant="ghost" shape="rounded" className="text-paper hover:bg-white/10" onClick={onDiscard}>
               {t('discard')}
             </Button>
-            <Button size="sm" shape="rounded" loading={saving} onClick={onSave}>
+            <Button size="sm" variant="light" shape="rounded" loading={saving} onClick={onSave}>
               {t('save')}
             </Button>
           </span>
