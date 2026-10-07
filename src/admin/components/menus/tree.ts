@@ -1,5 +1,6 @@
 // Immutable operations on a menu's items — one level of sub-items (PDF p.36 "renditje dhe nënmenu").
 import type { MenuItem } from '@/lib/types';
+import { validUrl } from './links';
 
 export interface Located {
   item: MenuItem;
@@ -93,3 +94,29 @@ export function outdentItem(items: MenuItem[], id: string): MenuItem[] {
 }
 
 export const countItems = (items: MenuItem[]) => items.reduce((n, it) => n + 1 + (it.children?.length ?? 0), 0);
+
+/* ------------------------------------------------------------------ */
+/* Validation (label in ME required, destination required, URL format)  */
+/* ------------------------------------------------------------------ */
+export type ItemError = 'label' | 'target' | 'url';
+
+export function itemErrors(it: Pick<MenuItem, 'label' | 'type' | 'target'>): ItemError[] {
+  const out: ItemError[] = [];
+  if (!it.label.me.trim()) out.push('label');
+  if (it.type === 'url') {
+    if (!validUrl(it.target)) out.push('url');
+  } else if (!it.target.trim()) out.push('target');
+  return out;
+}
+
+/** id → errors, for every item (sub-items included) that has at least one. */
+export function menuErrors(items: MenuItem[]): Map<string, ItemError[]> {
+  const out = new Map<string, ItemError[]>();
+  const visit = (it: MenuItem) => {
+    const e = itemErrors(it);
+    if (e.length) out.set(it.id, e);
+    (it.children ?? []).forEach(visit);
+  };
+  items.forEach(visit);
+  return out;
+}

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
-import { ArrowRight, Heart, Menu, Phone, Search, ShoppingBag, Ruler } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Heart, Menu, Phone, Search, ShoppingBag, Ruler } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Logo } from '@/components/brand/Logo';
 import { LangSwitcher } from '@/components/LangSwitcher';
@@ -10,20 +10,119 @@ import { Drawer } from '@/components/ui/Overlay';
 import { useDict, useL } from '@/i18n';
 import { site } from '@/i18n/site';
 import { useUi } from '@/store/ui';
-import { useCategories, useSettings } from '@/store/hooks';
+import { useCategories, usePlacements, useSettings } from '@/store/hooks';
+import { isPromo, type NavNode } from '@/admin/components/menus/links';
+import { useNavMenu } from '@/admin/components/menus/useNav';
+import type { L10n } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
+/* ------------------------------------------------------------------ */
+/* Main menu (CMS → Menus "main"), with the built-in links as fallback  */
+/* ------------------------------------------------------------------ */
+/** A header link, already in the shopper's language. */
+interface NavItem {
+  id: string;
+  label: string;
+  /** Router path or absolute URL; '' = heading without a link */
+  to: string;
+  external: boolean;
+  type: NavNode['type'];
+  image?: string;
+  sub?: string;
+  children: NavItem[];
+}
+
+const toItem = (n: NavNode, l: (v: L10n) => string): NavItem => ({
+  id: n.id,
+  label: l(n.label),
+  to: n.to,
+  external: n.external,
+  type: n.type,
+  image: n.entity?.image,
+  sub: n.entity?.subtitle ? l(n.entity.subtitle) || undefined : undefined,
+  children: n.children.map((c) => toItem(c, l)),
+});
+
+/** Image tile in the mega menu / mobile grid (category, collection, product, offer). */
+const isTile = (n: NavItem) => !!n.image && n.type !== 'url' && n.type !== 'page' && !isPromo(n);
+
+/** Header main menu: the CMS menu when it has visible links, otherwise the built-in navigation. */
+function useMainNav(): { items: NavItem[]; fallback: boolean } {
+  const nodes = useNavMenu('main');
+  const cats = useCategories();
+  const l = useL();
+  const t = useDict(site);
+  return useMemo(() => {
+    if (nodes.length) return { items: nodes.map((n) => toItem(n, l)), fallback: false };
+    const link = (id: string, to: string, label: string): NavItem => ({ id, label, to, external: false, type: 'url', children: [] });
+    return {
+      fallback: true,
+      items: [
+        {
+          ...link('nav-products', '/proizvodi', t('nav_products')),
+          children: [
+            ...cats.map((c): NavItem => ({ id: c.id, label: l(c.name), to: `/proizvodi/${c.slug}`, external: false, type: 'category', image: c.image, sub: l(c.tagline), children: [] })),
+            link('nav-sale', '/proizvodi?akcija=1', t('sale')),
+          ],
+        },
+        link('nav-services', '/usluge', t('nav_services')),
+        link('nav-projects', '/projekti', t('nav_projects')),
+        link('nav-about', '/o-nama', t('nav_about')),
+        link('nav-blog', '/savjeti', t('nav_blog')),
+        link('nav-contact', '/kontakt', t('nav_contact')),
+      ],
+    };
+  }, [nodes, cats, l, t]);
+}
+
+const pathOf = (to: string) => to.split(/[?#]/)[0];
+
+/** Highlight a dropdown parent while the shopper is inside its section. */
+function inSection(n: NavItem, pathname: string) {
+  const shop = n.children.some((c) => c.type === 'category' || c.type === 'product' || c.type === 'collection');
+  if (shop && (pathname.startsWith('/proizvod') || pathname.startsWith('/kolekcija'))) return true;
+  return [n, ...n.children].some((x) => {
+    const p = pathOf(x.to);
+    return !x.external && p.length > 1 && (pathname === p || pathname.startsWith(`${p}/`));
+  });
+}
+
+/** Router link, external link or plain block (heading without a target). */
+function NavTarget({ item, className, onClick, children }: { item: NavItem; className?: string; onClick?: () => void; children: ReactNode }) {
+  if (!item.to) return <div className={className}>{children}</div>;
+  if (item.external)
+    return (
+      <a href={item.to} target="_blank" rel="noreferrer" onClick={onClick} className={className}>
+        {children}
+      </a>
+    );
+  return (
+    <Link to={item.to} onClick={onClick} className={className}>
+      {children}
+    </Link>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Announcement bar — live "bar" placements, settings as fallback       */
+/* ------------------------------------------------------------------ */
 function AnnouncementBar() {
   const settings = useSettings();
+  const bar = usePlacements('bar');
   const l = useL();
   const [i, setI] = useState(0);
-  const items = settings.announcements;
+  const items = useMemo(() => {
+    const live = bar.filter((p) => p.title.me.trim()).map((p) => ({ id: p.id, text: p.title, href: p.cta?.href?.trim() ?? '' }));
+    return live.length ? live : settings.announcements.map((text, n) => ({ id: `a${n}`, text, href: '' }));
+  }, [bar, settings.announcements]);
   useEffect(() => {
     if (items.length < 2) return;
     const t = setInterval(() => setI((x) => (x + 1) % items.length), 4500);
     return () => clearInterval(t);
   }, [items.length]);
   if (!items.length) return null;
+  const cur = items[i % items.length];
+  const textCls = 'truncate font-medium';
   return (
     <div className="relative z-50 bg-ink text-paper">
       <div className="container-x flex h-9 items-center justify-between gap-4 text-[12.5px]">
@@ -33,14 +132,24 @@ function AnnouncementBar() {
         <div className="relative h-full flex-1 overflow-hidden text-center md:max-w-[60%]">
           <AnimatePresence mode="wait">
             <motion.p
-              key={i}
+              key={cur.id}
               initial={{ y: 14, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: -14, opacity: 0 }}
               transition={{ duration: 0.35 }}
               className="absolute inset-0 flex items-center justify-center truncate font-medium"
             >
-              {l(items[i % items.length])}
+              {!cur.href ? (
+                l(cur.text)
+              ) : /^(?:https?:|mailto:|tel:)/i.test(cur.href) ? (
+                <a href={cur.href} target="_blank" rel="noreferrer" className={cn(textCls, 'decoration-paper/40 underline-offset-4 hover:underline')}>
+                  {l(cur.text)}
+                </a>
+              ) : (
+                <Link to={cur.href} className={cn(textCls, 'decoration-paper/40 underline-offset-4 hover:underline')}>
+                  {l(cur.text)}
+                </Link>
+              )}
             </motion.p>
           </AnimatePresence>
         </div>
@@ -52,10 +161,10 @@ function AnnouncementBar() {
   );
 }
 
-function MegaMenu({ onClose }: { onClose: () => void }) {
-  const cats = useCategories();
-  const l = useL();
+function MegaMenu({ item, onClose }: { item: NavItem; onClose: () => void }) {
   const t = useDict(site);
+  const promo = item.children.find((c) => isPromo(c));
+  const tiles = item.children.filter((c) => c !== promo);
   return (
     <motion.div
       initial={{ opacity: 0, y: -8 }}
@@ -65,30 +174,38 @@ function MegaMenu({ onClose }: { onClose: () => void }) {
       className="absolute inset-x-0 top-full border-t border-line bg-paper shadow-[0_30px_60px_-30px_rgba(28,26,23,0.35)]"
     >
       <div className="container-x grid grid-cols-12 gap-8 py-8">
-        <div className="col-span-9 grid grid-cols-3 gap-3">
-          {cats.map((c) => (
-            <Link key={c.id} to={`/proizvodi/${c.slug}`} onClick={onClose} className="group flex items-center gap-4 rounded-2xl p-2.5 transition-colors hover:bg-white">
+        <div className={cn('grid gap-3', promo ? 'col-span-9 grid-cols-3' : 'col-span-12 grid-cols-4')}>
+          {tiles.map((c) => (
+            <NavTarget key={c.id} item={c} onClick={onClose} className="group flex items-center gap-4 rounded-2xl p-2.5 transition-colors hover:bg-white">
               <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-sand">
-                <Img src={c.image} small alt={l(c.name)} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                {c.image ? (
+                  <Img src={c.image} small alt={c.label} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                ) : (
+                  <span className="grid h-full w-full place-items-center text-ink-soft transition-colors group-hover:text-brand-700">
+                    <ArrowUpRight className="h-5 w-5" />
+                  </span>
+                )}
               </div>
               <div className="min-w-0">
-                <div className="font-semibold text-ink">{l(c.name)}</div>
-                <div className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-muted">{l(c.tagline)}</div>
+                <div className="font-semibold text-ink">{c.label}</div>
+                {c.sub && <div className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-muted">{c.sub}</div>}
               </div>
-            </Link>
+            </NavTarget>
           ))}
         </div>
-        <Link to="/proizvodi?akcija=1" onClick={onClose} className="group relative col-span-3 overflow-hidden rounded-2xl bg-ink">
-          <Img src="/images/cat/podovi.webp" small alt="" className="absolute inset-0 h-full w-full object-cover opacity-70 transition-transform duration-700 group-hover:scale-105" />
-          <div className="absolute inset-0 bg-gradient-to-t from-ink/85 via-ink/20 to-transparent" />
-          <div className="relative flex h-full min-h-[180px] flex-col justify-end p-5 text-white">
-            <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-brand-200">{t('sale')}</span>
-            <span className="mt-1 font-display text-2xl leading-tight">−20%</span>
-            <span className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold">
-              {t('seeAll')} <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-            </span>
-          </div>
-        </Link>
+        {promo && (
+          <NavTarget item={promo} onClick={onClose} className="group relative col-span-3 overflow-hidden rounded-2xl bg-ink">
+            <Img src={promo.image ?? '/images/cat/podovi.webp'} small alt="" className="absolute inset-0 h-full w-full object-cover opacity-70 transition-transform duration-700 group-hover:scale-105" />
+            <div className="absolute inset-0 bg-gradient-to-t from-ink/85 via-ink/20 to-transparent" />
+            <div className="relative flex h-full min-h-[180px] flex-col justify-end p-5 text-white">
+              <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-brand-200">{promo.label}</span>
+              <span className="mt-1 font-display text-2xl leading-tight">{promo.type === 'offer' ? promo.sub ?? '' : '−20%'}</span>
+              <span className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold">
+                {t('seeAll')} <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+              </span>
+            </div>
+          </NavTarget>
+        )}
       </div>
     </motion.div>
   );
@@ -98,12 +215,13 @@ export function Header({ transparentTop = false }: { transparentTop?: boolean })
   const t = useDict(site);
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
-  const [mega, setMega] = useState(false);
+  const [mega, setMega] = useState<string | null>(null);
   const cartCount = useUi((s) => s.cart.length);
   const wishCount = useUi((s) => s.wishlist.length);
   const setCartOpen = useUi((s) => s.setCartOpen);
   const setSearchOpen = useUi((s) => s.setSearchOpen);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { items: nav, fallback } = useMainNav();
 
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 24);
@@ -113,20 +231,13 @@ export function Header({ transparentTop = false }: { transparentTop?: boolean })
   }, []);
 
   useEffect(() => {
-    setMega(false);
+    setMega(null);
     setMobileOpen(false);
   }, [location.pathname, location.search]);
 
-  const solid = !transparentTop || scrolled || mega;
+  const megaItem = mega ? nav.find((n) => n.id === mega && n.children.length) : undefined;
+  const solid = !transparentTop || scrolled || !!megaItem;
   const tone = solid ? 'dark' : 'light';
-
-  const nav = [
-    { to: '/usluge', label: t('nav_services') },
-    { to: '/projekti', label: t('nav_projects') },
-    { to: '/o-nama', label: t('nav_about') },
-    { to: '/savjeti', label: t('nav_blog') },
-    { to: '/kontakt', label: t('nav_contact') },
-  ];
 
   const linkCls = (active: boolean) =>
     cn(
@@ -145,7 +256,7 @@ export function Header({ transparentTop = false }: { transparentTop?: boolean })
           solid ? 'border-b border-line/80 bg-paper/90 backdrop-blur-xl' : 'border-b border-transparent bg-transparent',
           transparentTop && '-mb-[76px]',
         )}
-        onMouseLeave={() => setMega(false)}
+        onMouseLeave={() => setMega(null)}
       >
         <div className="container-x flex h-[76px] items-center gap-3">
           <button className={cn(iconBtn, 'lg:hidden -ml-2')} onClick={() => setMobileOpen(true)} aria-label={t('menu')}>
@@ -156,20 +267,28 @@ export function Header({ transparentTop = false }: { transparentTop?: boolean })
           </Link>
 
           <nav className="ml-6 hidden items-center gap-0.5 lg:flex">
-            <button
-              type="button"
-              onMouseEnter={() => setMega(true)}
-              onClick={() => setMega((m) => !m)}
-              className={linkCls(location.pathname.startsWith('/proizvod') || mega)}
-              aria-expanded={mega}
-            >
-              {t('nav_products')}
-            </button>
-            {nav.map((n) => (
-              <NavLink key={n.to} to={n.to} onMouseEnter={() => setMega(false)} className={({ isActive }) => linkCls(isActive)}>
-                {n.label}
-              </NavLink>
-            ))}
+            {nav.map((n) =>
+              n.children.length ? (
+                <button
+                  key={n.id}
+                  type="button"
+                  onMouseEnter={() => setMega(n.id)}
+                  onClick={() => setMega((m) => (m === n.id ? null : n.id))}
+                  className={linkCls(inSection(n, location.pathname) || mega === n.id)}
+                  aria-expanded={mega === n.id}
+                >
+                  {n.label}
+                </button>
+              ) : n.external ? (
+                <a key={n.id} href={n.to} target="_blank" rel="noreferrer" onMouseEnter={() => setMega(null)} className={linkCls(false)}>
+                  {n.label}
+                </a>
+              ) : (
+                <NavLink key={n.id} to={n.to} onMouseEnter={() => setMega(null)} className={({ isActive }) => linkCls(isActive)}>
+                  {n.label}
+                </NavLink>
+              ),
+            )}
           </nav>
 
           <div className="ml-auto flex items-center gap-0.5">
@@ -188,50 +307,87 @@ export function Header({ transparentTop = false }: { transparentTop?: boolean })
                 </span>
               )}
             </button>
-            <ButtonLink to="/#mjerenje" variant={solid ? 'primary' : 'light'} size="sm" className="ml-2 hidden xl:inline-flex" icon={<Ruler className="h-4 w-4" />}>
-              {t('freeMeasure')}
-            </ButtonLink>
+            {/* Wrapper carries the breakpoint: the button's own `inline-flex` would win over `hidden` (cn has no tailwind-merge). */}
+            <span className="ml-2 hidden xl:inline-flex">
+              <ButtonLink to="/#mjerenje" variant={solid ? 'primary' : 'light'} size="sm" icon={<Ruler className="h-4 w-4" />}>
+                {t('freeMeasure')}
+              </ButtonLink>
+            </span>
           </div>
         </div>
-        <AnimatePresence>{mega && <MegaMenu onClose={() => setMega(false)} />}</AnimatePresence>
+        <AnimatePresence>{megaItem && <MegaMenu key={megaItem.id} item={megaItem} onClose={() => setMega(null)} />}</AnimatePresence>
       </header>
-      <MobileMenu open={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <MobileMenu open={mobileOpen} onClose={() => setMobileOpen(false)} nav={nav} fallback={fallback} />
     </>
   );
 }
 
-function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
+interface MobileRow {
+  key: string;
+  to: string;
+  label: string;
+  external: boolean;
+  /** Indented sub-links shown under the row */
+  sub: NavItem[];
+}
+
+function MobileMenu({ open, onClose, nav, fallback }: { open: boolean; onClose: () => void; nav: NavItem[]; fallback: boolean }) {
   const t = useDict(site);
-  const l = useL();
-  const cats = useCategories();
   const settings = useSettings();
-  const links = [
-    { to: '/', label: t('home') },
-    { to: '/proizvodi', label: t('allProducts') },
-    { to: '/usluge', label: t('nav_services') },
-    { to: '/projekti', label: t('nav_projects') },
-    { to: '/o-nama', label: t('nav_about') },
-    { to: '/savjeti', label: t('nav_blog') },
-    { to: '/kontakt', label: t('nav_contact') },
+  // The first dropdown with image tiles (Proizvodi) drives the category grid; its link becomes "All products".
+  const shop = nav.find((n) => n.children.some(isTile));
+  const tiles = shop ? shop.children.filter(isTile) : [];
+  const links: MobileRow[] = [
+    { key: 'home', to: '/', label: t('home'), external: false, sub: [] },
+    ...nav.map((n) =>
+      n === shop
+        ? { key: n.id, to: n.to || '/proizvodi', label: n.to ? t('allProducts') : n.label, external: n.external, sub: fallback ? [] : n.children.filter((c) => !isTile(c)) }
+        : { key: n.id, to: n.to, label: n.label, external: n.external, sub: n.children },
+    ),
   ];
+  const rowCls = 'border-b border-line py-3.5 text-[17px] font-semibold';
   return (
     <Drawer open={open} onClose={onClose} side="left" title={<Logo className="h-9" />} width="max-w-[380px]">
       <div className="px-5 py-5">
-        <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-muted">{t('categories')}</div>
-        <div className="grid grid-cols-2 gap-2">
-          {cats.map((c) => (
-            <Link key={c.id} to={`/proizvodi/${c.slug}`} onClick={onClose} className="group relative h-24 overflow-hidden rounded-xl bg-ink">
-              <Img src={c.image} small alt="" className="absolute inset-0 h-full w-full object-cover opacity-75" />
-              <div className="absolute inset-0 bg-gradient-to-t from-ink/80 to-transparent" />
-              <span className="absolute bottom-2 left-3 text-sm font-semibold text-white">{l(c.name)}</span>
-            </Link>
-          ))}
-        </div>
-        <nav className="mt-6 flex flex-col">
+        {tiles.length > 0 && (
+          <>
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-muted">{t('categories')}</div>
+            <div className="grid grid-cols-2 gap-2">
+              {tiles.map((c) => (
+                <NavTarget key={c.id} item={c} onClick={onClose} className="group relative h-24 overflow-hidden rounded-xl bg-ink">
+                  <Img src={c.image} small alt="" className="absolute inset-0 h-full w-full object-cover opacity-75" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-ink/80 to-transparent" />
+                  <span className="absolute bottom-2 left-3 right-3 truncate text-sm font-semibold text-white">{c.label}</span>
+                </NavTarget>
+              ))}
+            </div>
+          </>
+        )}
+        <nav className={cn('flex flex-col', tiles.length > 0 && 'mt-6')}>
           {links.map((n) => (
-            <NavLink key={n.to} to={n.to} end onClick={onClose} className={({ isActive }) => cn('border-b border-line py-3.5 text-[17px] font-semibold', isActive ? 'text-brand-700' : 'text-ink')}>
-              {n.label}
-            </NavLink>
+            <div key={n.key} className="flex flex-col">
+              {!n.to ? (
+                <span className={cn(rowCls, 'text-ink')}>{n.label}</span>
+              ) : n.external ? (
+                <a href={n.to} target="_blank" rel="noreferrer" onClick={onClose} className={cn(rowCls, 'text-ink')}>
+                  {n.label}
+                </a>
+              ) : (
+                <NavLink to={n.to} end onClick={onClose} className={({ isActive }) => cn(rowCls, isActive ? 'text-brand-700' : 'text-ink')}>
+                  {n.label}
+                </NavLink>
+              )}
+              {n.sub.map((c) => (
+                <NavTarget
+                  key={c.id}
+                  item={c}
+                  onClick={onClose}
+                  className={cn('border-b border-line py-3 pl-4 text-[15px]', isPromo(c) ? 'font-semibold text-brand-700' : 'font-medium text-ink-soft')}
+                >
+                  {c.label}
+                </NavTarget>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="mt-6 flex items-center justify-between">
