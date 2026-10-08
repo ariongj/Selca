@@ -40,6 +40,7 @@ const T = defineDict({
     phoneHint: 'Zovemo vas radi potvrde narudžbe.',
     email: 'E-mail',
     emailHint: 'Ovdje stiže potvrda narudžbe.',
+    emailPh: 'ime@primjer.me',
     city: 'Grad',
     chooseCity: 'Izaberite grad',
     address: 'Adresa',
@@ -100,6 +101,7 @@ const T = defineDict({
     phoneHint: 'Ju telefonojmë për konfirmimin e porosisë.',
     email: 'E-mail',
     emailHint: 'Këtu vjen konfirmimi i porosisë.',
+    emailPh: 'emri@shembull.me',
     city: 'Qyteti',
     chooseCity: 'Zgjidhni qytetin',
     address: 'Adresa',
@@ -160,6 +162,7 @@ const T = defineDict({
     phoneHint: 'We’ll call you to confirm the order.',
     email: 'E-mail',
     emailHint: 'Your order confirmation goes here.',
+    emailPh: 'name@example.com',
     city: 'City',
     chooseCity: 'Choose a city',
     address: 'Address',
@@ -547,7 +550,7 @@ export default function Checkout() {
                     label={t('email')}
                     required
                     autoComplete="email"
-                    placeholder="ime@primjer.me"
+                    placeholder={t('emailPh')}
                     hint={t('emailHint')}
                     value={form.email}
                     onChange={set('email')}

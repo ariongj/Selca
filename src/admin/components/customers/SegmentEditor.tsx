@@ -31,6 +31,7 @@ export const SEG = defineDict({
     mustMeet: 'Kupac mora ispuniti',
     addCondition: 'Dodaj uslov',
     removeCondition: 'Ukloni uslov',
+    operator: 'Operator',
     templates: 'Brzi početak',
     tpl_dormant: 'Neaktivni 60+ dana',
     tpl_big: 'Potrošili 2.000 €+',
@@ -80,6 +81,7 @@ export const SEG = defineDict({
     mustMeet: 'Klienti duhet të plotësojë',
     addCondition: 'Shto kusht',
     removeCondition: 'Hiq kushtin',
+    operator: 'Operatori',
     templates: 'Fillim i shpejtë',
     tpl_dormant: 'Joaktivë 60+ ditë',
     tpl_big: 'Shpenzuan 2.000 €+',
@@ -129,6 +131,7 @@ export const SEG = defineDict({
     mustMeet: 'Customer must meet',
     addCondition: 'Add condition',
     removeCondition: 'Remove condition',
+    operator: 'Operator',
     templates: 'Quick start',
     tpl_dormant: 'Dormant 60+ days',
     tpl_big: 'Spent €2,000+',
@@ -231,7 +234,7 @@ function RuleRow({ rule, onChange, onRemove, count, cities, tags, disabled, canR
       </div>
       <div className="col-span-2 grid grid-cols-2 gap-2 sm:contents">
         {numeric ? (
-          <select value={rule.op} disabled={disabled} onChange={(e) => onChange({ ...rule, op: e.target.value as SegmentRule['op'] })} aria-label="operator" className={cn(ctl, 'cursor-pointer appearance-none border-line sm:col-start-2 sm:row-start-1')}>
+          <select value={rule.op} disabled={disabled} onChange={(e) => onChange({ ...rule, op: e.target.value as SegmentRule['op'] })} aria-label={t('operator')} className={cn(ctl, 'cursor-pointer appearance-none border-line sm:col-start-2 sm:row-start-1')}>
             {(['gt', 'lt', 'eq'] as const).map((op) => (
               <option key={op} value={op}>
                 {tx(`op_${op}`)}

@@ -5,7 +5,7 @@ import { Logo } from '@/components/brand/Logo';
 import { LangSwitcher } from '@/components/LangSwitcher';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { installationAmount, lineUnits, localizeLine } from '@/admin/components/orders/helpers';
-import { defineDict, useDict, useLang } from '@/i18n';
+import { defineDict, useDict, useL, useLang } from '@/i18n';
 import { common } from '@/i18n/common';
 import { useDb } from '@/store/db';
 import { useSettings } from '@/store/hooks';
@@ -263,6 +263,8 @@ function Sheet({ order }: { order: Order }) {
   const lang = useLang('admin');
   const s = useSettings();
   const products = useDb((st) => st.products);
+  const rules = useDb((st) => st.discounts);
+  const tl = useL('admin');
   const c = order.customer;
 
   const issued = new Date().toISOString();
@@ -280,7 +282,15 @@ function Sheet({ order }: { order: Order }) {
     if (inst > 0) rows.push({ key: `i${i}`, desc: t('installFor', { name: loc.name }), qty: num(units, lang), unit: unitLabel(l.unit, lang), price: l.installationPrice, amount: inst });
   });
   if (order.shipping > 0) rows.push({ key: 'ship', desc: t('shippingLine', { city: c.city }), sub: tc(`delivery_${order.delivery.method}`), qty: '1', unit: t('unit_service'), price: order.shipping, amount: order.shipping });
-  if (order.discount > 0)
+  // one row per applied product / order discount (the shipping discount is already reflected in the delivery row)
+  const applied = (order.discounts ?? []).filter((a) => a.kind !== 'shipping' && a.amount > 0);
+  if (applied.length)
+    for (const a of applied) {
+      const rule = rules.find((r) => r.id === a.id);
+      const name = (rule && tl(rule.publicTitle)) || a.title;
+      rows.push({ key: `disc-${a.id}`, desc: a.code ? t('discountLine', { code: a.code }) : t('discountPlain'), sub: name, qty: '', unit: '', price: null, amount: -a.amount, muted: true });
+    }
+  else if (order.discount > 0)
     rows.push({ key: 'disc', desc: order.coupon?.code ? t('discountLine', { code: order.coupon.code }) : t('discountPlain'), qty: '', unit: '', price: null, amount: -order.discount, muted: true });
 
   const vat = order.vat || round2(order.total - order.total / (1 + s.vatRate / 100));

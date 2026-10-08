@@ -104,7 +104,7 @@ export function Footer() {
               </li>
             </ul>
             <div className="mt-6 flex flex-wrap items-center gap-2">
-              {['VISA', 'Mastercard', 'Maestro', 'Pouzećem'].map((p) => (
+              {['VISA', 'Mastercard', 'Maestro', t('payCod')].map((p) => (
                 <span key={p} className="rounded-md border border-white/15 px-2.5 py-1 text-[11px] font-bold tracking-wide text-paper/70">
                   {p}
                 </span>
@@ -115,7 +115,7 @@ export function Footer() {
 
         <div className="flex flex-col gap-3 border-t border-white/10 py-6 text-[12.5px] text-paper/45 sm:flex-row sm:items-center sm:justify-between">
           <span>
-            © {year} {settings.legalName} · PIB {settings.pib} · {t('rights')}
+            © {year} {settings.legalName} · {t('taxId')} {settings.pib} · {t('rights')}
           </span>
           <span className="flex items-center gap-5">
             <Link to="/admin" className="hover:text-white">

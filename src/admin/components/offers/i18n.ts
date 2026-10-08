@@ -113,6 +113,7 @@ export const OF = defineDict({
     backToList: 'Nazad na ponude',
     viewPage: 'Stranica ponude',
 
+    stepsNav: 'Koraci ponude',
     step1: 'Pripremi',
     step1Text: 'Naziv, period, proizvodi i pravilo',
     step2: 'Prikaži i objavi',
@@ -527,6 +528,7 @@ export const OF = defineDict({
     backToList: 'Kthehu te ofertat',
     viewPage: 'Faqja e ofertës',
 
+    stepsNav: 'Hapat e ofertës',
     step1: 'Përgatit',
     step1Text: 'Emri, periudha, produktet dhe rregulli',
     step2: 'Paraqit dhe publiko',
@@ -941,6 +943,7 @@ export const OF = defineDict({
     backToList: 'Back to offers',
     viewPage: 'Offer page',
 
+    stepsNav: 'Offer steps',
     step1: 'Prepare',
     step1Text: 'Name, period, products and rule',
     step2: 'Present & publish',

@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { Accent, Img } from '@/components/ui/misc';
 import { useDict } from '@/i18n';
 import { site } from '@/i18n/site';
+import { common } from '@/i18n/common';
 import { cn } from '@/lib/utils';
 
 /** Eyebrow + serif title (supports *accent*) + optional subtitle and action. */
@@ -40,9 +41,10 @@ export function SectionHeading({
 
 export function Breadcrumbs({ items, tone = 'dark' }: { items: { label: string; to?: string }[]; tone?: 'dark' | 'light' }) {
   const t = useDict(site);
+  const tc = useDict(common);
   const all = [{ label: t('home'), to: '/' }, ...items];
   return (
-    <nav aria-label="Breadcrumb" className={cn('flex flex-wrap items-center gap-1 text-[13px]', tone === 'light' ? 'text-white/70' : 'text-muted')}>
+    <nav aria-label={tc('breadcrumb')} className={cn('flex flex-wrap items-center gap-1 text-[13px]', tone === 'light' ? 'text-white/70' : 'text-muted')}>
       {all.map((it, i) => (
         <span key={i} className="inline-flex items-center gap-1">
           {i > 0 && <ChevronRight className="h-3.5 w-3.5 opacity-60" />}

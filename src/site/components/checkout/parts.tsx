@@ -11,6 +11,7 @@ import { useDb } from '@/store/db';
 import { useSettings } from '@/store/hooks';
 import { money, num } from '@/lib/format';
 import type { PricedLine, Totals } from '@/lib/pricing';
+import type { AppliedDiscount } from '@/lib/types';
 import { discountState } from '@/lib/discounts';
 import { cn } from '@/lib/utils';
 import { ck, pluralKey } from './dict';
@@ -119,7 +120,8 @@ export function CouponBox({ totals, collapsible, className }: { totals: Totals; 
             {c.code}
             <span className="ml-1.5 font-semibold tracking-normal text-emerald-700">· {c.type === 'percent' ? `−${c.value}%` : `−${money(c.value, lang, { decimals: c.value % 1 !== 0 })}`}</span>
           </div>
-          <div className="text-[12.5px] leading-snug text-emerald-700">{t('couponSaving', { amount: money(totals.discount, lang) })}</div>
+          {/* saving of THIS code only — automatic discounts are listed separately in the totals */}
+          <div className="text-[12.5px] leading-snug text-emerald-700">{t('couponSaving', { amount: money(totals.applied.find((a) => a.code === c.code)?.amount ?? totals.discount, lang) })}</div>
         </div>
         <button
           type="button"
@@ -252,6 +254,8 @@ export interface TotalsView {
   installationTotal: number;
   discount: number;
   couponCode?: string | null;
+  /** Every applied product / order discount (shipping discounts show in the shipping row). Replaces the single discount row. */
+  discounts?: { id: string; label: string; code?: string; amount: number }[];
   shipping: number;
   /** show "od 10 €" */
   shippingFrom?: boolean;
@@ -273,7 +277,20 @@ export function TotalsRows({ v, className, big }: { v: TotalsView; className?: s
       <div className="space-y-2.5">
         <Row label={tc('subtotal')} value={money(v.subtotal, lang)} />
         {v.installationTotal > 0 && <Row label={tc('installation')} value={money(v.installationTotal, lang)} />}
-        {v.discount > 0 && (
+        {v.discounts?.length
+          ? v.discounts.map((d) => (
+              <Row
+                key={d.id}
+                label={
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    {d.label}
+                    {d.code && <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-emerald-700">{d.code}</span>}
+                  </span>
+                }
+                value={<span className="text-emerald-700">−{money(d.amount, lang)}</span>}
+              />
+            ))
+          : v.discount > 0 && (
           <Row
             label={
               <span className="inline-flex flex-wrap items-center gap-1.5">
@@ -307,12 +324,29 @@ export function TotalsRows({ v, className, big }: { v: TotalsView; className?: s
   );
 }
 
+/** Shopper-facing name of an applied discount: the rule's public title (storefront language), else its internal title. */
+export function useDiscountLabel() {
+  const l = useL();
+  const discounts = useDb((s) => s.discounts);
+  return (a: Pick<AppliedDiscount, 'id' | 'title'>) => {
+    const d = discounts.find((x) => x.id === a.id);
+    return (d && l(d.publicTitle)) || a.title;
+  };
+}
+
+/** Applied product / order discounts as totals rows (shipping discounts are shown in the shipping row). */
+export function useDiscountRows(applied: AppliedDiscount[] | undefined): TotalsView['discounts'] {
+  const label = useDiscountLabel();
+  return (applied ?? []).filter((a) => a.kind !== 'shipping' && a.amount > 0).map((a) => ({ id: a.id, label: label(a), code: a.code, amount: a.amount }));
+}
+
 /** Maps a priced cart (useCart) to the totals view. */
 export function useTotalsView(totals: Totals, opts: { showEstimateHint?: boolean } = {}): TotalsView {
   const t = useDict(ck);
   const tc = useDict(common);
   const lang = useLang();
   const settings = useSettings();
+  const discountRows = useDiscountRows(totals.applied);
   const r = totals.freeShippingReason;
   const note =
     r === 'threshold'
@@ -329,6 +363,7 @@ export function useTotalsView(totals: Totals, opts: { showEstimateHint?: boolean
     installationTotal: totals.installationTotal,
     discount: totals.discount,
     couponCode: totals.coupon?.code,
+    discounts: discountRows,
     shipping: totals.shipping,
     shippingFrom: totals.shippingEstimate,
     shippingFree: !!r,
@@ -367,6 +402,30 @@ export function TrustNotes({ className, compact }: { className?: string; compact
 }
 
 /* ------------------------------------------------------------------ */
+/* Product-level discounts on a cart line                              */
+/* ------------------------------------------------------------------ */
+/** e.g. "Uz 3 sobna vrata kvaka gratis · −34,00 €" — order discounts stay in the totals. */
+export function LineDiscounts({ line, className }: { line: PricedLine; className?: string }) {
+  const lang = useLang();
+  const label = useDiscountLabel();
+  const discounts = useDb((s) => s.discounts);
+  const rows = line.allocations
+    .map((a) => ({ a, d: discounts.find((x) => x.id === a.discountId) }))
+    .filter(({ a, d }) => d && (d.kind === 'products' || d.kind === 'bxgy') && a.amount > 0);
+  if (!rows.length) return null;
+  return (
+    <div className={cn('flex flex-wrap gap-1.5', className)}>
+      {rows.map(({ a, d }) => (
+        <span key={a.discountId} className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11.5px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/15">
+          <TicketPercent className="h-3 w-3 shrink-0" />
+          {label({ id: d!.id, title: d!.title })} · −{money(a.amount, lang)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Compact summary line (checkout sidebar)                             */
 /* ------------------------------------------------------------------ */
 export function CompactLine({ line }: { line: PricedLine }) {
@@ -398,6 +457,7 @@ export function CompactLine({ line }: { line: PricedLine }) {
             {t('plusInstallation', { amount: money(line.installationTotal, lang) })}
           </p>
         )}
+        <LineDiscounts line={line} className="mt-1" />
       </div>
     </div>
   );

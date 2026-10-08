@@ -67,7 +67,7 @@ export function useUploader() {
       }
       toast.success(t('uploaded'));
     } catch {
-      toast.error('Upload failed');
+      toast.error(t('uploadFailed'));
     } finally {
       setBusy(false);
     }
@@ -105,7 +105,7 @@ export function Dropzone({ onFiles, busy, className, compact }: { onFiles: (f: F
         <Upload className={cn('h-4 w-4', busy && 'animate-bounce')} />
       </span>
       <span className="text-[13px] font-semibold text-ink">{busy ? t('uploading') : t('dropHere')}</span>
-      {!compact && <span className="text-xs text-muted">JPG, PNG, WebP · max 1600 px</span>}
+      {!compact && <span className="text-xs text-muted">{t('fileTypes')}</span>}
     </div>
   );
 }
@@ -264,7 +264,7 @@ export function GalleryField({ label, value, onChange }: { label?: ReactNode; va
             <img src={thumb(url)} alt="" className="h-full w-full object-cover" />
             {i === 0 && (
               <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-ink/80 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                <Star className="h-2.5 w-2.5 fill-current" /> Cover
+                <Star className="h-2.5 w-2.5 fill-current" /> {t('cover')}
               </span>
             )}
             <span className="absolute bottom-1.5 left-1.5 grid h-6 w-6 cursor-grab place-items-center rounded-md bg-white/90 text-ink-soft opacity-0 shadow transition group-hover:opacity-100">

@@ -477,7 +477,7 @@ const DRAFTS: Draft[] = [
     name: T('PVC prozor Thermo 76 — antracit', 'Dritare PVC Thermo 76 — antracit', 'Thermo 76 PVC window — anthracite'),
     short: T('Antracit spolja, bijelo unutra — moderan izgled fasade.', 'Antracit jashtë, e bardhë brenda — pamje moderne e fasadës.', 'Anthracite outside, white inside — a modern façade look.'),
     description: T(
-      'Isti provjereni profil Thermo 76, sa folijom u antracit boji RAL 7016 sa spoljne strane. Daje savremen izgled fasadi, a iznutra ostaje bijel i svijetao. Folija je otporna na UV zrake i ne bledi.',
+      'Isti provjereni profil Thermo 76, sa folijom u antracit boji RAL 7016 sa spoljne strane. Daje savremen izgled fasadi, a iznutra ostaje bijel i svijetao. Folija je otporna na UV zrake i ne blijedi.',
       'I njëjti profil i provuar Thermo 76, me petëzim antracit RAL 7016 nga ana e jashtme. I jep fasadës pamje moderne, ndërsa nga brenda mbetet i bardhë dhe i ndritshëm. Petëzimi është rezistent ndaj rrezeve UV dhe nuk zbehet.',
       'The same proven Thermo 76 profile with an anthracite RAL 7016 foil outside. It gives the façade a contemporary look while staying bright white inside. The foil is UV-resistant and will not fade.',
     ),

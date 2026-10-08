@@ -22,8 +22,9 @@ const TONE: Record<StepTone, { icon: typeof Check; cls: string }> = {
 };
 
 export function Stepper({ step, onStep, steps }: { step: Step; onStep: (s: Step) => void; steps: StepInfo[] }) {
+  const t = useOT();
   return (
-    <nav aria-label="Steps" className="mb-5 overflow-hidden rounded-xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
+    <nav aria-label={t('stepsNav')} className="mb-5 overflow-hidden rounded-xl border border-line/80 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
       <ol className="grid grid-cols-3 divide-x divide-line/70">
         {steps.map((s, i) => {
           const n = (i + 1) as Step;

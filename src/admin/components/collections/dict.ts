@@ -163,6 +163,8 @@ export const cd = defineDict({
     unpublishedNote: 'Nije objavljena — vidljiva samo u CMS-u i u pregledu.',
     productsN: '{n} proizvoda',
     or: 'ili',
+    and: 'i',
+    operator: 'Operator',
   },
   sq: {
     title: 'Koleksionet',
@@ -325,6 +327,8 @@ export const cd = defineDict({
     unpublishedNote: 'Pa publikuar — duket vetëm në CMS dhe në parapamje.',
     productsN: '{n} produkte',
     or: 'ose',
+    and: 'dhe',
+    operator: 'Operatori',
   },
   en: {
     title: 'Collections',
@@ -487,6 +491,8 @@ export const cd = defineDict({
     unpublishedNote: 'Not published — visible only in the CMS and in preview.',
     productsN: '{n} products',
     or: 'or',
+    and: 'and',
+    operator: 'Operator',
   },
 });
 

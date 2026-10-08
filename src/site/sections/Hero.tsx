@@ -7,6 +7,7 @@ import { Accent } from '@/components/ui/misc';
 import { ButtonLink } from '@/components/ui/Button';
 import { useDict, useL } from '@/i18n';
 import { site } from '@/i18n/site';
+import { common } from '@/i18n/common';
 import { cn } from '@/lib/utils';
 
 const DURATION = 7000;
@@ -14,6 +15,7 @@ const DURATION = 7000;
 export function HeroSection({ slides, autoplay }: { slides: HeroSlide[]; autoplay: boolean }) {
   const l = useL();
   const t = useDict(site);
+  const tc = useDict(common);
   const [i, setI] = useState(0);
   const [paused, setPaused] = useState(false);
   const count = slides.length;
@@ -88,7 +90,7 @@ export function HeroSection({ slides, autoplay }: { slides: HeroSlide[]; autopla
             </span>
             <div className="flex gap-2">
               {slides.map((sl, k) => (
-                <button key={sl.id} onClick={() => go(k)} className="group relative h-[3px] w-14 overflow-hidden rounded-full bg-white/25" aria-label={`Slide ${k + 1}`}>
+                <button key={sl.id} onClick={() => go(k)} className="group relative h-[3px] w-14 overflow-hidden rounded-full bg-white/25" aria-label={tc('slideN', { n: k + 1 })}>
                   <span
                     className={cn('absolute inset-y-0 left-0 rounded-full bg-white', k < i || (k === i && !autoplay) ? 'w-full' : 'w-0')}
                     style={k === i && autoplay ? { animation: `heroprogress ${DURATION}ms linear forwards`, animationPlayState: paused ? 'paused' : 'running' } : undefined}
@@ -98,10 +100,10 @@ export function HeroSection({ slides, autoplay }: { slides: HeroSlide[]; autopla
               ))}
             </div>
             <div className="hidden gap-2 md:flex">
-              <button onClick={() => go(i - 1)} className="grid h-11 w-11 place-items-center rounded-full border border-white/30 text-white backdrop-blur transition hover:bg-white hover:text-ink" aria-label="Previous">
+              <button onClick={() => go(i - 1)} className="grid h-11 w-11 place-items-center rounded-full border border-white/30 text-white backdrop-blur transition hover:bg-white hover:text-ink" aria-label={tc('prev')}>
                 <ChevronLeft className="h-5 w-5" />
               </button>
-              <button onClick={() => go(i + 1)} className="grid h-11 w-11 place-items-center rounded-full border border-white/30 text-white backdrop-blur transition hover:bg-white hover:text-ink" aria-label="Next">
+              <button onClick={() => go(i + 1)} className="grid h-11 w-11 place-items-center rounded-full border border-white/30 text-white backdrop-blur transition hover:bg-white hover:text-ink" aria-label={tc('next')}>
                 <ChevronRight className="h-5 w-5" />
               </button>
             </div>

@@ -12,6 +12,7 @@ import { useCart, useSettings } from '@/store/hooks';
 import { money, num, unitLabel } from '@/lib/format';
 import type { PricedLine } from '@/lib/pricing';
 import { cn } from '@/lib/utils';
+import { LineDiscounts } from '@/site/components/checkout/parts';
 
 export function FreeShippingBar({ remaining, threshold, reason, className }: { remaining: number; threshold: number; reason: string | null; className?: string }) {
   const t = useDict(site);
@@ -67,6 +68,7 @@ export function CartLine({ line, compact }: { line: PricedLine; compact?: boolea
           </div>
           <span className="text-[15px] font-bold tabular-nums text-ink">{money(line.lineTotal, lang)}</span>
         </div>
+        <LineDiscounts line={line} className="mt-2" />
         {p.installation?.available && !compact && (
           <div className={cn('mt-3 flex items-center justify-between gap-3 rounded-xl px-3 py-2', line.item.installation ? 'bg-brand-50' : 'bg-sand/60')}>
             <span className="flex items-center gap-2 text-[12.5px] font-medium text-ink-soft">
@@ -119,6 +121,12 @@ export function CartDrawer() {
                 <div className="flex justify-between text-muted">
                   <span>{tc('installation')}</span>
                   <span className="tabular-nums text-ink">{money(totals.installationTotal, lang)}</span>
+                </div>
+              )}
+              {totals.discount > 0 && (
+                <div className="flex justify-between text-muted">
+                  <span>{tc('discount')}</span>
+                  <span className="tabular-nums text-emerald-700">−{money(totals.discount, lang)}</span>
                 </div>
               )}
               <div className="flex justify-between text-muted">

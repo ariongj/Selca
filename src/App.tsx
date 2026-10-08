@@ -7,6 +7,7 @@ import { useDb } from '@/store/db';
 import { useUi } from '@/store/ui';
 import { applyBrand, setAdminTheme } from '@/lib/color';
 import { startCrossTabSync } from '@/store/sync';
+import { defineDict } from '@/i18n';
 import { RequirePerm } from '@/admin/layout/RequirePerm';
 import type { Action, Module } from '@/lib/permissions';
 
@@ -95,6 +96,12 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+const STORAGE_FULL = defineDict({
+  me: { full: 'Prostor za demo podatke je pun — obrišite neke otpremljene slike ili resetujte demo.' },
+  sq: { full: 'Hapësira për të dhënat e demos është plot — fshini disa imazhe të ngarkuara ose rivendosni demon.' },
+  en: { full: 'Demo data storage is full — delete some uploaded images or reset the demo.' },
+});
+
 /** Old v1 CMS URLs → v2 screens, keeping ?query (e.g. /admin/upiti?id=inq_120 → /admin/kontakti?id=inq_120). */
 function Redirect({ to }: { to: string }) {
   const { search, hash } = useLocation();
@@ -110,7 +117,11 @@ function Root() {
   useEffect(() => applyBrand(brand), [brand]);
   useEffect(() => startCrossTabSync(), []);
   useEffect(() => {
-    const fn = () => toast.error('Prostor za demo podatke je pun — obrišite neke otpremljene slike ili resetujte demo.');
+    const fn = () => {
+      const ui = useUi.getState();
+      const lang = document.documentElement.hasAttribute('data-admin') ? ui.adminLang : ui.lang;
+      toast.error(STORAGE_FULL[lang].full);
+    };
     window.addEventListener('selca:storage-full', fn);
     return () => window.removeEventListener('selca:storage-full', fn);
   }, []);

@@ -51,6 +51,7 @@ const T = defineDict({
     summaryEmpty: 'Izaberite termin da biste vidjeli pregled.',
     pendingHint: 'Klijent još treba da potvrdi',
     confirmedHint: 'Dogovoreno sa klijentom',
+    close: 'Zatvori',
   },
   sq: {
     title: 'Rezervim i ri',
@@ -60,7 +61,7 @@ const T = defineDict({
     s3: 'Intervali',
     s4: 'Kontakti',
     s5: 'Konfirmimi',
-    capacityN: 'kapacitet {n}',
+    capacityN: 'kapaciteti {n}',
     hoursOf: 'Orari: {from}–{to}',
     noSlots: 'Nuk ka intervale të lira këtë ditë — zgjidhni një ditë ose person tjetër.',
     freeN: '{n} të lira nga {total}',
@@ -86,6 +87,7 @@ const T = defineDict({
     summaryEmpty: 'Zgjidhni një interval për të parë përmbledhjen.',
     pendingHint: 'Klienti duhet ta konfirmojë',
     confirmedHint: 'Rënë dakord me klientin',
+    close: 'Mbyll',
   },
   en: {
     title: 'New booking',
@@ -121,6 +123,7 @@ const T = defineDict({
     summaryEmpty: 'Pick a slot to see the summary.',
     pendingHint: 'The client still has to confirm',
     confirmedHint: 'Agreed with the client',
+    close: 'Close',
   },
 });
 
@@ -301,7 +304,7 @@ function AddBookingForm({ prefill, onClose, onCreated }: { prefill: AddBookingPr
           </h2>
           <p className="mt-0.5 text-[13px] text-muted">{t('desc')}</p>
         </div>
-        <button onClick={onClose} className="-mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-ink/5" aria-label="Close">
+        <button onClick={onClose} className="-mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-ink/5" aria-label={t('close')}>
           <X className="h-5 w-5" />
         </button>
       </div>

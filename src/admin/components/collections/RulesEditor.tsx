@@ -116,7 +116,7 @@ export function RulesEditor({
         <ul className="space-y-2">
           {rules.map((r, i) => (
             <li key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-canvas/40 p-2 sm:flex-nowrap">
-              {i > 0 && <span className="w-full text-[11px] font-bold uppercase tracking-wide text-muted sm:hidden">{match === 'all' ? 'AND' : 'OR'}</span>}
+              {i > 0 && <span className="w-full text-[11px] font-bold uppercase tracking-wide text-muted sm:hidden">{t(match === 'all' ? 'and' : 'or')}</span>}
               <SelectInput size="sm" value={r.field} onChange={(e) => changeField(i, e.target.value as CollectionRuleField)} className="min-w-0 flex-1 sm:w-48 sm:flex-none" aria-label={t('c_conditions')}>
                 {RULE_FIELDS.map((f) => (
                   <option key={f} value={f}>
@@ -124,7 +124,7 @@ export function RulesEditor({
                   </option>
                 ))}
               </SelectInput>
-              <SelectInput size="sm" value={r.op} onChange={(e) => set(i, { op: e.target.value as RuleOp })} className="w-[132px] shrink-0 sm:w-36" aria-label="op">
+              <SelectInput size="sm" value={r.op} onChange={(e) => set(i, { op: e.target.value as RuleOp })} className="w-[132px] shrink-0 sm:w-36" aria-label={t('operator')}>
                 {OPS[r.field].map((op) => (
                   <option key={op} value={op}>
                     {t(`op_${op}` as CdKey)}

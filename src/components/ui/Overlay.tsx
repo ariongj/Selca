@@ -3,6 +3,15 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { common } from '@/i18n/common';
+import { useUi } from '@/store/ui';
+
+/** Close-button label in the language of the current area (CMS under html[data-admin], storefront otherwise). */
+function useCloseLabel() {
+  const site = useUi((s) => s.lang);
+  const admin = useUi((s) => s.adminLang);
+  return common[document.documentElement.hasAttribute('data-admin') ? admin : site].close;
+}
 
 function useLockBody(open: boolean) {
   useEffect(() => {
@@ -45,6 +54,7 @@ export function Drawer({
 }) {
   useLockBody(open);
   useEsc(open, onClose);
+  const closeLabel = useCloseLabel();
   return createPortal(
     <AnimatePresence>
       {open && (
@@ -73,7 +83,7 @@ export function Drawer({
             {title !== undefined && (
               <div className="flex items-center justify-between border-b border-line px-5 py-4 sm:px-6">
                 <div className="min-w-0 text-lg font-semibold">{title}</div>
-                <button onClick={onClose} className="-mr-2 grid h-10 w-10 place-items-center rounded-full hover:bg-ink/5" aria-label="Close">
+                <button onClick={onClose} className="-mr-2 grid h-10 w-10 place-items-center rounded-full hover:bg-ink/5" aria-label={closeLabel}>
                   <X className="h-5 w-5" />
                 </button>
               </div>
@@ -109,6 +119,7 @@ export function Modal({
 }) {
   useLockBody(open);
   useEsc(open, onClose);
+  const closeLabel = useCloseLabel();
   const w = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-5xl', full: 'max-w-[1200px]' }[size];
   return createPortal(
     <AnimatePresence>
@@ -130,7 +141,7 @@ export function Modal({
                   {title && <h2 className="text-lg font-bold text-ink">{title}</h2>}
                   {description && <p className="mt-1 text-sm text-muted">{description}</p>}
                 </div>
-                <button onClick={onClose} className="-mr-2 -mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-ink/5" aria-label="Close">
+                <button onClick={onClose} className="-mr-2 -mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-ink/5" aria-label={closeLabel}>
                   <X className="h-5 w-5" />
                 </button>
               </div>

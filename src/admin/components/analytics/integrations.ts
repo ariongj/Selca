@@ -34,7 +34,7 @@ export const KIND_META: Record<IntegrationKind, KindMeta> = {
     title: T('Kartično plaćanje', 'Pagesa me kartelë', 'Card payments'),
     desc: T('Online plaćanje karticom, autorizacija, naplata i povrat novca. CMS čuva samo reference transakcija, nikad brojeve kartica.', 'Pagesë online me kartelë, autorizim, capture dhe rimbursim. CMS ruan vetëm referenca transaksioni, jo numra kartash.', 'Online card payments, authorisation, capture and refunds. The CMS stores transaction references only, never card numbers.'),
     providers: [
-      { id: 'bank', name: 'Procesor banke (po ugovoru)', note: T('Ugovor sa bankom u Crnoj Gori', 'Kontratë me bankën në Mal të Zi', 'Contract with a Montenegrin bank') },
+      { id: 'bank', name: 'Banka · e-commerce', note: T('Ugovor sa bankom u Crnoj Gori', 'Kontratë me bankën në Mal të Zi', 'Contract with a Montenegrin bank') },
       { id: 'monri', name: 'Monri WebPay', note: T('Regionalni procesor kartica', 'Procesor rajonal kartelash', 'Regional card processor') },
       { id: 'stripe', name: 'Stripe', note: T('Međunarodni procesor', 'Procesor ndërkombëtar', 'International processor') },
     ],
@@ -48,14 +48,14 @@ export const KIND_META: Record<IntegrationKind, KindMeta> = {
     icon: Truck,
     label: T('Kurir', 'Korrier', 'Courier'),
     title: T('Kurirska služba', 'Shërbimi i korrierit', 'Courier service'),
-    desc: T('Kreiranje pošiljki i nalepnica, broj za praćenje u narudžbi i obavještenje kupcu.', 'Krijim dërgesash dhe etiketash, numri i gjurmimit në porosi dhe njoftim për klientin.', 'Shipments and labels, tracking number on the order and a customer notification.'),
+    desc: T('Kreiranje pošiljki i naljepnica, broj za praćenje u narudžbi i obavještenje kupcu.', 'Krijim dërgesash dhe etiketash, numri i gjurmimit në porosi dhe njoftim për klientin.', 'Shipments and labels, tracking number on the order and a customer notification.'),
     providers: [
       { id: 'posta', name: 'Pošta Crne Gore', note: T('Nacionalna pošta', 'Posta kombëtare', 'National post') },
       { id: 'cityexpress', name: 'City Express', note: T('Kurir u regionu', 'Korrier në rajon', 'Regional courier') },
       { id: 'dhl', name: 'DHL Express', note: T('Međunarodne pošiljke', 'Dërgesa ndërkombëtare', 'International shipments') },
     ],
     scopes: [
-      { id: 'shipments:write', label: T('Pošiljke i nalepnice', 'Dërgesa dhe etiketa', 'Shipments and labels'), required: true },
+      { id: 'shipments:write', label: T('Pošiljke i naljepnice', 'Dërgesa dhe etiketa', 'Shipments and labels'), required: true },
       { id: 'tracking:read', label: T('Praćenje pošiljke', 'Gjurmimi i dërgesës', 'Shipment tracking'), required: true },
       { id: 'pickups:write', label: T('Zakazivanje preuzimanja', 'Porosit marrje', 'Schedule pickups') },
     ],
@@ -83,7 +83,7 @@ export const KIND_META: Record<IntegrationKind, KindMeta> = {
     desc: T('Registracija računa u sistemu EFI i čuvanje kodova IKOF/JIKR na računu. CMS ne zamjenjuje fiskalnu specifikaciju.', 'Regjistrimi i faturës në sistemin EFI dhe ruajtja e kodeve IKOF/JIKR në faturë. CMS nuk zëvendëson specifikimin fiskal.', 'Registers invoices with the EFI system and stores the IKOF/JIKR codes on the invoice. The CMS does not replace the fiscal specification.'),
     providers: [
       { id: 'efi', name: 'EFI — Poreska uprava', note: T('Direktno, sa sertifikatom firme', 'Drejtpërdrejt, me certifikatën e kompanisë', 'Direct, with the company certificate') },
-      { id: 'accounting', name: 'Preko knjigovodstvenog softvera', note: T('Fiskalizuje knjigovodstvo', 'Fiskalizon kontabiliteti', 'Fiscalised by the accounting software') },
+      { id: 'accounting', name: 'ERP / POS', note: T('Fiskalizuje knjigovodstvo', 'Fiskalizon kontabiliteti', 'Fiscalised by the accounting software') },
     ],
     scopes: [
       { id: 'invoices:fiscalize', label: T('Fiskalizacija računa (IKOF/JIKR)', 'Fiskalizo faturat (IKOF/JIKR)', 'Fiscalise invoices (IKOF/JIKR)'), required: true },
@@ -115,7 +115,7 @@ export const KIND_META: Record<IntegrationKind, KindMeta> = {
     providers: [
       { id: 'pantheon', name: 'Pantheon', note: T('ERP u regionu', 'ERP në rajon', 'Regional ERP') },
       { id: 'minimax', name: 'Minimax', note: T('Online knjigovodstvo', 'Kontabilitet online', 'Online accounting') },
-      { id: 'csv', name: 'CSV / API izvoz', note: T('Izvoz za postojeći sistem', 'Eksport për sistemin ekzistues', 'Export for the existing system') },
+      { id: 'csv', name: 'CSV / API', note: T('Izvoz za postojeći sistem', 'Eksport për sistemin ekzistues', 'Export for the existing system') },
     ],
     scopes: [
       { id: 'products:read', label: T('Artikli i zalihe', 'Artikuj dhe stok', 'Items and stock'), required: true },

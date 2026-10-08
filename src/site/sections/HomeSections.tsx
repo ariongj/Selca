@@ -14,6 +14,7 @@ import { ProductCard } from '@/site/components/ProductCard';
 import { MeasureForm } from '@/site/components/MeasureForm';
 import { defineDict, useDict, useL, useLang } from '@/i18n';
 import { site } from '@/i18n/site';
+import { common } from '@/i18n/common';
 import { useDb } from '@/store/db';
 import { useActiveProducts, useCategories, useSettings } from '@/store/hooks';
 import { isOnSale } from '@/lib/pricing';
@@ -203,6 +204,7 @@ function pickProducts(products: Product[], mode: FeatMode, ids: string[]) {
 
 export function Scroller({ children, className }: { children: React.ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
+  const tc = useDict(common);
   const by = (dir: number) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.8, behavior: 'smooth' });
   return (
     <div className={cn('relative', className)}>
@@ -210,10 +212,10 @@ export function Scroller({ children, className }: { children: React.ReactNode; c
         {children}
       </div>
       <div className="pointer-events-none absolute -top-[76px] right-0 hidden gap-2 lg:flex">
-        <button onClick={() => by(-1)} className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-ink/15 bg-white transition hover:border-ink hover:bg-ink hover:text-white" aria-label="Previous">
+        <button onClick={() => by(-1)} className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-ink/15 bg-white transition hover:border-ink hover:bg-ink hover:text-white" aria-label={tc('prev')}>
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <button onClick={() => by(1)} className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-ink/15 bg-white transition hover:border-ink hover:bg-ink hover:text-white" aria-label="Next">
+        <button onClick={() => by(1)} className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-ink/15 bg-white transition hover:border-ink hover:bg-ink hover:text-white" aria-label={tc('next')}>
           <ChevronRight className="h-5 w-5" />
         </button>
       </div>

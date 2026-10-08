@@ -12,7 +12,7 @@ import { dateTime, money, num, unitLabel } from '@/lib/format';
 import type { Order, OrderLine } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { usePageTitle } from '@/site/layout/SiteLayout';
-import { CheckoutSteps, TotalsRows, useCopy, useItemsLabel } from '@/site/components/checkout/parts';
+import { CheckoutSteps, TotalsRows, useCopy, useDiscountRows, useItemsLabel } from '@/site/components/checkout/parts';
 import { Confetti, SuccessCheck } from '@/site/components/checkout/Celebrate';
 import { ck } from '@/site/components/checkout/dict';
 
@@ -276,6 +276,7 @@ function Success({ order }: { order: Order }) {
   const settings = useSettings();
   const items = useItemsLabel();
   const copy = useCopy();
+  const discountRows = useDiscountRows(order.discounts);
   usePageTitle(t('pageTitle'));
 
   const c = order.customer;
@@ -471,6 +472,7 @@ function Success({ order }: { order: Order }) {
                   installationTotal: order.installationTotal,
                   discount: order.discount,
                   couponCode: order.coupon?.code,
+                  discounts: discountRows,
                   shipping: order.shipping,
                   shippingFree: order.shipping === 0,
                   shippingLabel: pickup ? tc('delivery_pickup') : tc('shipping'),

@@ -526,7 +526,7 @@ function Editor({ source }: { source?: Collection }) {
                 <ul className="mt-3 space-y-1 border-t border-line/70 pt-3 text-[12.5px] text-ink-soft">
                   {form.rules.map((r, i) => (
                     <li key={i} className="flex gap-1.5">
-                      <span className="w-8 shrink-0 text-[10.5px] font-bold uppercase leading-5 tracking-wide text-muted">{i === 0 ? '' : form.match === 'all' ? 'AND' : 'OR'}</span>
+                      <span className="w-8 shrink-0 text-[10.5px] font-bold uppercase leading-5 tracking-wide text-muted">{i === 0 ? '' : t(form.match === 'all' ? 'and' : 'or')}</span>
                       <span className="min-w-0">{ruleText(r, ctx)}</span>
                     </li>
                   ))}

@@ -7,6 +7,7 @@ import { Img } from '@/components/ui/misc';
 import { Price } from '@/site/components/Price';
 import { useDict, useL, useLang } from '@/i18n';
 import { site } from '@/i18n/site';
+import { common } from '@/i18n/common';
 import { useUi } from '@/store/ui';
 import { useActiveProducts, useCategories } from '@/store/hooks';
 import { searchProducts } from '@/lib/search';
@@ -23,6 +24,7 @@ export function SearchOverlay() {
   const t = useDict(site);
   const l = useL();
   const lang = useLang();
+  const tc = useDict(common);
   const products = useActiveProducts();
   const cats = useCategories();
   const [q, setQ] = useState('');
@@ -75,7 +77,7 @@ export function SearchOverlay() {
                   placeholder={t('searchPlaceholder')}
                   className="min-w-0 flex-1 bg-transparent font-display text-2xl outline-none placeholder:text-muted/60 sm:text-4xl"
                 />
-                <button type="button" onClick={close} className="grid h-11 w-11 shrink-0 place-items-center rounded-full hover:bg-ink/5" aria-label="Close">
+                <button type="button" onClick={close} className="grid h-11 w-11 shrink-0 place-items-center rounded-full hover:bg-ink/5" aria-label={tc('close')}>
                   <X className="h-6 w-6" />
                 </button>
               </form>

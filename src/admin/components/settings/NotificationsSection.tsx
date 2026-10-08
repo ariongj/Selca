@@ -64,6 +64,8 @@ const N = defineDict({
     helloStaff: 'Zdravo,',
     regards: 'Srdačan pozdrav,',
     subject: 'Naslov (subject)',
+    subjectShort: 'Naslov',
+    sampleService: 'Mjerenje',
     variables: 'Dozvoljene varijable',
     variables_h: 'Kliknite da dodate u naslov.',
     unknownVar: 'Nepoznata varijabla: {vars}',
@@ -130,6 +132,8 @@ const N = defineDict({
     helloStaff: 'Përshëndetje,',
     regards: 'Me respekt,',
     subject: 'Titulli (subject)',
+    subjectShort: 'Subjekti',
+    sampleService: 'Matje',
     variables: 'Variablat e lejuara',
     variables_h: 'Klikoni për t’i shtuar në titull.',
     unknownVar: 'Variabël e panjohur: {vars}',
@@ -196,6 +200,8 @@ const N = defineDict({
     helloStaff: 'Hello,',
     regards: 'Kind regards,',
     subject: 'Subject',
+    subjectShort: 'Subject',
+    sampleService: 'Measurement',
     variables: 'Allowed variables',
     variables_h: 'Click to add to the subject.',
     unknownVar: 'Unknown variable: {vars}',
@@ -278,7 +284,7 @@ function useSamples(lang: Lang) {
         email: b?.email ?? 'kupac@example.com',
         date: start.toLocaleDateString(locale, { day: 'numeric', month: 'long' }),
         time: start.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }),
-        service: svc ? svc.name[lang] || svc.name.me : 'Mjerenje',
+        service: svc ? svc.name[lang] || svc.name.me : N[lang].sampleService,
       },
     };
   }, [orders, inquiries, bookings, services, lang]);
@@ -371,7 +377,7 @@ function TemplateModal({ open, tpl, onClose, onApply, sender, staffEmail, compan
               <span className="min-w-0 truncate text-ink-soft">{sampleTo(tpl, sm, staffEmail)}</span>
             </div>
             <div className="flex gap-2">
-              <span className="w-14 shrink-0 text-muted">Subject</span>
+              <span className="w-14 shrink-0 text-muted">{t('subjectShort')}</span>
               <span className="min-w-0 font-semibold text-ink">{interpolate(subject[lang] || subject.me, vars)}</span>
             </div>
           </div>
